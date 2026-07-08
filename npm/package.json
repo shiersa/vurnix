@@ -1,0 +1,12 @@
+{
+  "name": "vurnix",
+  "version": "0.1.0",
+  "description": "Local-first software factory: deterministic multi-agent orchestration for small local models. Early development — placeholder CLI; the Python package is primary.",
+  "bin": { "vurnix": "bin/vurnix.js" },
+  "files": ["bin"],
+  "engines": { "node": ">=18" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/shiersa/vurnix.git" },
+  "homepage": "https://github.com/shiersa/vurnix",
+  "keywords": ["agents", "orchestration", "local-llm", "software-factory", "deterministic"]
+}
