@@ -1,6 +1,7 @@
 {
-  "name": "vurnix",
+  "name": "@vurnix/cli",
   "version": "0.1.0",
+  "publishConfig": { "access": "public" },
   "description": "Local-first software factory: deterministic multi-agent orchestration for small local models. Early development — placeholder CLI; the Python package is primary.",
   "bin": { "vurnix": "bin/vurnix.js" },
   "files": ["bin"],

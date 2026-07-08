@@ -29,7 +29,9 @@ vurnix doctor    # preflight your environment
 vurnix version
 ```
 
-An `npm i -g vurnix` stub is also published to hold the name; the Python package is primary.
+An `npm i -g @vurnix/cli` stub is also published under the project's npm scope; the
+Python package is primary. (Unscoped `vurnix` is blocked for everyone by npm's
+name-similarity rule, so the `@vurnix` org scope is the claimed asset.)
 
 ## Roadmap
 
