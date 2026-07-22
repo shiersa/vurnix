@@ -14,7 +14,7 @@ def test_info_points_home(capsys):
 
 def test_default_is_info(capsys):
     assert main([]) == 0
-    assert "software factory" in capsys.readouterr().out
+    assert "honest gate" in capsys.readouterr().out
 
 
 def test_doctor_passes_where_git_exists(capsys):

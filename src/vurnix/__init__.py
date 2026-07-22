@@ -1,3 +1,3 @@
-"""Vurnix — local-first software factory (early development)."""
+"""Vurnix — the honest gate for AI-written code."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

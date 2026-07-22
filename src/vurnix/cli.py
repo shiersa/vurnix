@@ -13,17 +13,20 @@ from . import __version__
 REPO_URL = "https://github.com/shiersa/vurnix"
 
 INFO = f"""\
-Vurnix v{__version__} (alpha)
+Vurnix v{__version__} — the honest gate for AI-written code.
 
-A local-first software factory: deterministic multi-agent orchestration
-that turns small local models into working software, end to end.
+Deterministic, zero-dependency checkers that catch how AI agents game
+test suites. A check that cannot run is not a check that passed.
 
-  - Deterministic pipeline: same input, same build plan, machine-checked gates
-  - Weak-local-model first: built for 12B-class models on your own hardware
-  - Self-evolving: lessons and skills accumulate and graduate into code
+  vurnix gate <dir>          compile + phantom-import + honest test count
+  vurnix integrity ...       anti-weakening guard (snapshot | compare)
+  vurnix coverage <dir>      distinct non-trivial test count
+  vurnix mutation ...        test strength via mutation (mutants | run)
+  vurnix phantom <dir>       imports that exist nowhere
+  vurnix compile <dir>       four-language compile gate (py/js/go/java)
 
-Status: early development. This release reserves the CLI entry point;
-the pipeline lands in a later release.
+Extracted from the gate of a local-first autonomous coding pipeline;
+usable with any agent, harness, or CI.
 
   Home: {REPO_URL}
 """

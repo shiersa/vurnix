@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vurnix"
-version = "0.1.0"
-description = "Local-first software factory: deterministic multi-agent orchestration for small local models. Early development."
+version = "0.2.0"
+description = "The honest gate for AI-written code: deterministic checkers that catch weakened tests, padded suites, phantom imports, and code that does not build."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "shiersa" }]
-keywords = ["agents", "orchestration", "local-llm", "software-factory", "deterministic"]
+keywords = ["testing", "mutation-testing", "ai-agents", "code-quality", "quality-gate", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
