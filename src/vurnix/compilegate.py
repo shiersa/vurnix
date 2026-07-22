@@ -1,0 +1,148 @@
+"""Thin compile gate: does the code even build? Dispatched by file extension.
+
+A test suite can be green while a sibling file never compiles (nothing imports it), and a
+"tests passed" claim on top of code that does not build is the cheapest kind of false
+green. This runs the cheapest honest build check per language:
+
+- Python: ``compile()`` every ``.py`` (syntax; no artifacts written, nothing executed)
+- JS: ``node --check`` every ``.js/.mjs/.cjs``
+- Go: ``go vet ./...`` (requires a ``go.mod`` for module context)
+- Java: ``mvn -q -DskipTests compile`` when a ``pom.xml`` is present, else ``javac``
+
+HONESTY RULE: a language whose toolchain is unavailable is reported ``SKIP`` with the
+reason — never silently counted as OK. A check that cannot run is not a check that passed.
+
+Usage::
+
+    vurnix compile <dir>      # exit 0 = everything checked compiles; 1 = failures; 2 = usage
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+_SKIP_DIRS = {'.deps', 'node_modules', '__pycache__', '.venv', 'venv', 'vendor', 'target',
+              'site-packages', '.pw-browsers', 'dist', 'build'}
+_TIMEOUT = 240
+
+
+def _collect(root):
+    py, js, go, java = [], [], [], []
+    for dp, dn, fn in os.walk(root):
+        dn[:] = [d for d in dn if d not in _SKIP_DIRS and not d.startswith('.')]
+        for f in fn:
+            p = os.path.join(dp, f)
+            if f.endswith('.py'):
+                py.append(p)
+            elif f.endswith(('.js', '.mjs', '.cjs')):
+                js.append(p)
+            elif f.endswith('.go'):
+                go.append(p)
+            elif f.endswith('.java'):
+                java.append(p)
+    return sorted(py), sorted(js), sorted(go), sorted(java)
+
+
+def _run(cmd, cwd=None):
+    """-> (rc, combined-output). rc 124 on timeout (reported as a failure, not a pass)."""
+    try:
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=_TIMEOUT)
+        return p.returncode, (p.stdout + p.stderr).strip()
+    except subprocess.TimeoutExpired:
+        return 124, "timed out after %ds" % _TIMEOUT
+
+
+def check(root):
+    """-> (report_lines, failure_count). SKIP lines are informational, never counted as OK."""
+    root = os.path.abspath(root)
+    py, js, go, java = _collect(root)
+    lines = []
+    failures = 0
+
+    if py:
+        bad = []
+        for f in py:
+            try:
+                compile(open(f, encoding='utf-8', errors='ignore').read(), f, 'exec')
+            except SyntaxError as e:
+                bad.append("  py FAIL %s: %s (line %s)" % (os.path.relpath(f, root), e.msg, e.lineno))
+        if bad:
+            lines.append("compile py: FAIL (%d of %d file(s))" % (len(bad), len(py)))
+            lines.extend(bad)
+            failures += len(bad)
+        else:
+            lines.append("compile py: OK (%d file(s))" % len(py))
+
+    if js:
+        if shutil.which('node') is None:
+            lines.append("compile js: SKIP (node toolchain not found — %d file(s) NOT checked)" % len(js))
+        else:
+            bad = []
+            for f in js:
+                rc, out = _run(['node', '--check', f])
+                if rc != 0:
+                    bad.append("  js FAIL %s: %s" % (os.path.relpath(f, root), out.splitlines()[-1] if out else "rc=%d" % rc))
+            if bad:
+                lines.append("compile js: FAIL (%d of %d file(s))" % (len(bad), len(js)))
+                lines.extend(bad)
+                failures += len(bad)
+            else:
+                lines.append("compile js: OK (%d file(s))" % len(js))
+
+    if go:
+        if shutil.which('go') is None:
+            lines.append("compile go: SKIP (go toolchain not found — %d file(s) NOT checked)" % len(go))
+        elif not os.path.isfile(os.path.join(root, 'go.mod')):
+            lines.append("compile go: SKIP (no go.mod — no module context to build in; %d file(s) NOT checked)" % len(go))
+        else:
+            rc, out = _run(['go', 'vet', './...'], cwd=root)
+            if rc != 0:
+                lines.append("compile go: FAIL")
+                for ln in out.splitlines()[:20]:
+                    lines.append("  go %s" % ln)
+                failures += 1
+            else:
+                lines.append("compile go: OK (%d file(s))" % len(go))
+
+    if java:
+        pom = os.path.isfile(os.path.join(root, 'pom.xml'))
+        if pom and shutil.which('mvn'):
+            rc, out = _run(['mvn', '-q', '-DskipTests', 'compile'], cwd=root)
+            if rc != 0:
+                lines.append("compile java: FAIL (mvn compile)")
+                for ln in out.splitlines()[:20]:
+                    lines.append("  java %s" % ln)
+                failures += 1
+            else:
+                lines.append("compile java: OK (mvn, %d file(s))" % len(java))
+        elif shutil.which('javac'):
+            with tempfile.TemporaryDirectory() as tmp:
+                rc, out = _run(['javac', '-d', tmp] + java)
+            if rc != 0:
+                lines.append("compile java: FAIL (javac)")
+                for ln in out.splitlines()[:20]:
+                    lines.append("  java %s" % ln)
+                failures += 1
+            else:
+                lines.append("compile java: OK (javac, %d file(s))" % len(java))
+        else:
+            lines.append("compile java: SKIP (no mvn/javac toolchain — %d file(s) NOT checked)" % len(java))
+
+    if not lines:
+        lines.append("compile: no source files found under %s" % root)
+    return lines, failures
+
+
+def run(args):
+    if len(args) != 1:
+        sys.stderr.write("usage: vurnix compile <dir>\n")
+        return 2
+    if not os.path.isdir(args[0]):
+        sys.stderr.write("compile: not a directory: %s\n" % args[0])
+        return 2
+    lines, failures = check(args[0])
+    for ln in lines:
+        print(ln)
+    return 1 if failures else 0

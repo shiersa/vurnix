@@ -45,16 +45,45 @@ def doctor() -> int:
     return 1 if failed else 0
 
 
+def _gate_dispatch(command, rest) -> int:
+    """The honest-gate toolset. Dispatched before argparse: each subcommand owns its own
+    argument contract (including `--`-separated test commands argparse would mangle)."""
+    from . import compilegate, coverage, gate, integrity, mutation, phantom
+
+    table = {
+        "integrity": integrity.run,
+        "coverage": coverage.run,
+        "mutation": mutation.run,
+        "phantom": phantom.run,
+        "compile": compilegate.run,
+        "gate": gate.run,
+    }
+    return table[command](rest)
+
+
+GATE_COMMANDS = ("integrity", "coverage", "mutation", "phantom", "compile", "gate")
+
+
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in GATE_COMMANDS:
+        return _gate_dispatch(argv[0], argv[1:])
+
     parser = argparse.ArgumentParser(
         prog="vurnix",
-        description="Vurnix — local-first software factory (alpha).",
+        description="Vurnix — the honest gate for AI-written code.",
     )
     parser.add_argument("--version", action="version", version=f"vurnix {__version__}")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("version", help="print the version")
     sub.add_parser("info", help="what Vurnix is and where it lives")
-    sub.add_parser("doctor", help="preflight checks for the upcoming pipeline")
+    sub.add_parser("doctor", help="preflight checks")
+    sub.add_parser("gate", help="composite honest gate: compile + phantom + coverage")
+    sub.add_parser("integrity", help="anti-weakening test guard (snapshot | compare)")
+    sub.add_parser("coverage", help="count distinct non-trivial test functions")
+    sub.add_parser("mutation", help="mutation testing (mutants | run)")
+    sub.add_parser("phantom", help="find phantom imports (referenced but existing nowhere)")
+    sub.add_parser("compile", help="four-language compile gate (py/js/go/java)")
     args = parser.parse_args(argv)
 
     if args.command == "version":
