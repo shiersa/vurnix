@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vurnix — the honest gate for AI-written code</title>
+<meta name="description" content="Vurnix is a set of deterministic, zero-dependency checkers that catch the shortcuts AI coding agents take to make tests pass: deleted asserts, skipped tests, invented imports. No model in the loop. BLOCK or PASS, never 'mostly green'.">
+<meta property="og:title" content="Vurnix — the honest gate for AI-written code">
+<meta property="og:description" content="The deterministic gate that makes 'make the tests pass' cheats impossible to hide. A check that cannot run is not a check that passed.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://vurnix.dev/">
+<meta name="theme-color" content="#0a0b0c">
+<style>
+  :root{
+    --bg:#0a0b0c;
+    --bg-2:#0d0f11;
+    --panel:#101316;
+    --panel-2:#0c0e10;
+    --ink:#e9e7e0;
+    --ink-dim:#8b9299;
+    --ink-faint:#565d63;
+    --line:#20262b;
+    --line-2:#171c20;
+    --block:#f2543d;
+    --pass:#54cf86;
+    --skip:#e2a63a;
+    --phosphor:#8fe0c8;
+    --mono:"Berkeley Mono",ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace;
+    --serif:"Iowan Old Style","Hoefler Text","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --maxw:1140px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--mono);
+    font-size:15px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+    /* instrument grid + vignette, all pure CSS, no external requests */
+    background-image:
+      radial-gradient(120% 90% at 50% -10%, rgba(143,224,200,.05), transparent 55%),
+      linear-gradient(to right, var(--line-2) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--line-2) 1px, transparent 1px);
+    background-size:auto, 64px 64px, 64px 64px;
+    background-position:0 0, -1px -1px, -1px -1px;
+  }
+  ::selection{background:rgba(143,224,200,.22);color:#fff}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  /* ---------- top bar ---------- */
+  header.bar{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(8px);
+    background:linear-gradient(to bottom, rgba(10,11,12,.92), rgba(10,11,12,.72));
+    border-bottom:1px solid var(--line);
+  }
+  .bar .wrap{display:flex;align-items:center;justify-content:space-between;height:56px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.02em}
+  .brand .dot{width:9px;height:9px;border-radius:2px;background:var(--pass);box-shadow:0 0 10px rgba(84,207,134,.8)}
+  .brand b{font-weight:700}
+  .brand span{color:var(--ink-faint);font-weight:400}
+  .legend{display:flex;align-items:center;gap:16px;font-size:11px;color:var(--ink-dim);letter-spacing:.08em}
+  .legend .lg{display:flex;align-items:center;gap:6px;text-transform:uppercase}
+  .legend i{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .legend .pass i{background:var(--pass)}
+  .legend .skip i{background:var(--skip)}
+  .legend .block i{background:var(--block);animation:pulse 2.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .navlinks{display:flex;gap:18px;font-size:13px}
+  .navlinks a{color:var(--ink-dim);border-bottom:1px solid transparent;transition:color .18s,border-color .18s;padding-bottom:1px}
+  .navlinks a:hover{color:var(--ink);border-color:var(--ink)}
+  @media(max-width:760px){.legend{display:none}}
+  @media(max-width:440px){.brand span{display:none}.bar .wrap{height:52px}.navlinks{gap:14px}}
+
+  /* ---------- reveal ---------- */
+  .rv{opacity:0;transform:translateY(14px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+  .rv.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none;transition:none}.legend .block i{animation:none}}
+
+  /* ---------- hero ---------- */
+  .hero{padding:74px 0 48px;position:relative}
+  .hero .wrap{display:grid;grid-template-columns:1.04fr .96fr;gap:52px;align-items:center}
+  @media(max-width:900px){.hero .wrap{grid-template-columns:1fr;gap:36px}.hero{padding:52px 0 36px}}
+  .kicker{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--phosphor);margin-bottom:20px;display:flex;align-items:center;gap:10px}
+  .kicker::before{content:"";width:26px;height:1px;background:var(--phosphor);opacity:.7}
+  h1{
+    font-family:var(--mono);
+    font-size:clamp(31px,5.4vw,54px);
+    line-height:1.06;
+    letter-spacing:-.01em;
+    font-weight:700;
+    margin-bottom:22px;
+  }
+  h1 .em{color:var(--phosphor)}
+  .lede{font-size:clamp(15px,1.7vw,17px);color:var(--ink-dim);max-width:46ch;margin-bottom:30px;line-height:1.68}
+  .lede strong{color:var(--ink);font-weight:600}
+
+  .cmd{
+    display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;
+    background:var(--panel);overflow:hidden;max-width:360px;
+  }
+  .cmd .txt{padding:12px 15px;font-size:14px;display:flex;align-items:center;gap:9px;white-space:nowrap}
+  .cmd .txt .p{color:var(--pass)}
+  .cmd button{
+    margin-left:auto;border:none;border-left:1px solid var(--line);background:transparent;
+    color:var(--ink-dim);font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+    padding:0 16px;cursor:pointer;text-transform:uppercase;transition:color .15s,background .15s;
+  }
+  .cmd button:hover{color:var(--ink);background:rgba(255,255,255,.03)}
+  .cmd button.copied{color:var(--pass)}
+  .sub-cmd{margin-top:12px;font-size:13px;color:var(--ink-faint)}
+  .sub-cmd code{color:var(--ink-dim)}
+
+  /* ---------- terminal panel ---------- */
+  .term{
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    box-shadow:0 30px 60px -30px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.02);
+  }
+  .term .head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.015)}
+  .term .head .tl{display:flex;gap:6px}
+  .term .head .tl i{width:10px;height:10px;border-radius:50%;background:var(--line);display:inline-block}
+  .term .head .name{margin-left:6px;font-size:11px;color:var(--ink-faint);letter-spacing:.06em}
+  .term .body{padding:16px 16px 18px;font-size:13px;line-height:1.75;overflow-x:auto}
+  .term .body pre{font-family:var(--mono);white-space:pre;color:var(--ink-dim)}
+  .term .l-cmd{color:var(--ink)}
+  .term .l-cmd .p{color:var(--pass)}
+  .term .l-warn{color:var(--block)}
+  .term .l-note{color:var(--ink-dim)}
+  .term .l-exit{color:var(--ink-faint)}
+  .term .stamp{
+    display:inline-block;margin-top:10px;padding:4px 12px;border:1px solid var(--block);
+    color:var(--block);border-radius:5px;font-size:12px;letter-spacing:.18em;font-weight:700;
+    box-shadow:0 0 22px -6px rgba(242,84,61,.5);
+  }
+  .caption{margin-top:12px;font-size:12px;color:var(--ink-faint);line-height:1.6}
+
+  /* ---------- manifesto ---------- */
+  .manifesto{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:60px 0;margin-top:26px;position:relative;background:var(--bg-2)}
+  .manifesto .wrap{display:grid;grid-template-columns:auto 1fr;gap:38px;align-items:start}
+  @media(max-width:760px){.manifesto .wrap{grid-template-columns:1fr;gap:20px}.manifesto{padding:44px 0}}
+  .manifesto .mark{font-size:12px;letter-spacing:.2em;color:var(--phosphor);text-transform:uppercase;padding-top:12px;white-space:nowrap}
+  .manifesto q{
+    font-family:var(--serif);font-style:italic;
+    font-size:clamp(23px,3.4vw,36px);line-height:1.24;color:var(--ink);
+    quotes:none;display:block;
+  }
+  .manifesto q b{font-style:normal;font-weight:400;color:var(--phosphor)}
+  .manifesto .exp{margin-top:20px;color:var(--ink-dim);max-width:60ch;font-size:14px}
+  .manifesto .exp b{color:var(--ink);font-weight:600}
+
+  /* ---------- section frame ---------- */
+  section.blk{padding:76px 0}
+  @media(max-width:760px){section.blk{padding:52px 0}}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:36px;flex-wrap:wrap}
+  .sec-num{font-size:12px;color:var(--phosphor);letter-spacing:.12em}
+  .sec-head h2{font-size:clamp(22px,3vw,30px);font-weight:700;letter-spacing:-.01em}
+  .sec-head p{color:var(--ink-dim);font-size:14px;margin-left:auto;max-width:40ch;text-align:right}
+  @media(max-width:640px){.sec-head p{margin-left:0;text-align:left}}
+
+  /* ---------- cheats ---------- */
+  .cheats{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  @media(max-width:640px){.cheats{grid-template-columns:1fr}}
+  .cheat{background:var(--panel);padding:24px 22px;position:relative}
+  .cheat .idx{font-size:11px;color:var(--ink-faint);letter-spacing:.1em}
+  .cheat h3{font-size:16px;margin:8px 0 8px;color:var(--ink);font-weight:700}
+  .cheat code{color:var(--block);font-size:14px}
+  .cheat p{color:var(--ink-dim);font-size:13.5px;line-height:1.62}
+  .cheat .res{display:block;margin-top:12px;font-size:12px;color:var(--ink-faint)}
+  .cheat .res .g{color:var(--pass)}
+  .cheat .res .b{color:var(--block)}
+  .cheats-foot{margin-top:22px;color:var(--ink-dim);font-size:14px;max-width:66ch}
+  .cheats-foot b{color:var(--ink);font-weight:600}
+
+  /* ---------- checkers table ---------- */
+  .tablewrap{border:1px solid var(--line);border-radius:10px;overflow-x:auto;background:var(--panel)}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px}
+  thead th{
+    text-align:left;padding:14px 18px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-faint);border-bottom:1px solid var(--line);font-weight:600;background:rgba(255,255,255,.012)
+  }
+  tbody td{padding:16px 18px;border-bottom:1px solid var(--line-2);vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:rgba(143,224,200,.02)}
+  td.cmd-cell{white-space:nowrap}
+  td.cmd-cell .c{color:var(--phosphor);font-weight:700}
+  td.cmd-cell .v{color:var(--ink-faint)}
+  td .catch b{color:var(--ink)}
+  td .catch{color:var(--ink-dim);line-height:1.58}
+  .langs{display:flex;gap:6px;flex-wrap:wrap}
+  .lang{font-size:11px;padding:2px 8px;border:1px solid var(--line);border-radius:4px;color:var(--ink-dim);letter-spacing:.04em}
+  .lang.dash{color:var(--ink-faint);border-style:dashed}
+  tr.gate td{background:rgba(143,224,200,.03)}
+  tr.gate .c{color:var(--pass)}
+
+  /* ---------- evidence ---------- */
+  .evidence{background:var(--bg-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  @media(max-width:820px){.stats{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.stats{grid-template-columns:1fr}}
+  .stat{background:var(--panel);padding:26px 22px;display:flex;flex-direction:column;gap:9px;min-height:172px}
+  .stat .fig{font-size:clamp(30px,4vw,40px);font-weight:700;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+  .stat .fig .arw{color:var(--ink-faint);font-weight:400;margin:0 6px}
+  .stat .fig .up{color:var(--pass)}
+  .stat .fig .dn{color:var(--block)}
+  .stat .lbl{font-size:13px;color:var(--ink);line-height:1.5}
+  .stat .src{font-size:11.5px;color:var(--ink-faint);margin-top:auto;line-height:1.5}
+  .measured{margin-top:22px;font-size:13px;color:var(--ink-faint);display:flex;align-items:center;gap:10px}
+  .measured::before{content:"";width:18px;height:1px;background:var(--ink-faint)}
+
+  /* ---------- closing / teaser ---------- */
+  .close .wrap{max-width:900px}
+  .teaser{
+    border:1px solid var(--line);border-radius:12px;padding:40px;background:linear-gradient(160deg,var(--panel),var(--panel-2));
+    position:relative;overflow:hidden;
+  }
+  .teaser::before{content:"";position:absolute;inset:0;background:radial-gradient(80% 120% at 100% 0%,rgba(143,224,200,.06),transparent 60%);pointer-events:none}
+  .teaser h2{font-size:clamp(20px,2.6vw,26px);margin-bottom:16px;font-weight:700;letter-spacing:-.01em}
+  .teaser p{color:var(--ink-dim);max-width:62ch;font-size:14.5px;line-height:1.68}
+  .teaser p b{color:var(--ink);font-weight:600}
+  .cta{display:flex;gap:14px;margin-top:28px;flex-wrap:wrap}
+  .btn{
+    display:inline-flex;align-items:center;gap:9px;padding:12px 20px;border:1px solid var(--line);
+    border-radius:8px;font-size:13.5px;color:var(--ink);transition:border-color .18s,background .18s,transform .18s;
+  }
+  .btn:hover{border-color:var(--phosphor);background:rgba(143,224,200,.04);transform:translateY(-1px)}
+  .btn.primary{border-color:var(--phosphor);background:rgba(143,224,200,.07)}
+  .btn svg{width:16px;height:16px;flex:none}
+  .btn .k{color:var(--ink-faint);font-size:12px}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line);padding:34px 0 46px;margin-top:2px}
+  footer .wrap{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px}
+  footer .l{display:flex;align-items:center;gap:11px;color:var(--ink-faint);font-size:13px}
+  footer .l .dot{width:8px;height:8px;border-radius:2px;background:var(--pass);opacity:.8}
+  footer .r{display:flex;gap:20px;font-size:13px;color:var(--ink-dim)}
+  footer .r a:hover{color:var(--ink)}
+  footer .r .sep{color:var(--ink-faint)}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Vurnix home"><span class="dot"></span><b>vurnix</b><span>/ honest gate</span></a>
+    <div class="legend" aria-hidden="true">
+      <span class="lg pass"><i></i>pass</span>
+      <span class="lg skip"><i></i>skip</span>
+      <span class="lg block"><i></i>block</span>
+    </div>
+    <nav class="navlinks">
+      <a href="https://github.com/shiersa/vurnix">GitHub</a>
+      <a href="https://pypi.org/project/vurnix/">PyPI</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <div class="rv">
+      <div class="kicker">deterministic · zero-dependency · any agent</div>
+      <h1>The honest gate for<br><span class="em">AI-written code.</span></h1>
+      <p class="lede">AI coding agents don't just write bugs. Told to <strong>&ldquo;make the tests pass&rdquo;</strong>, they delete the failing assert, skip the test, or import a module that doesn't exist. The suite goes green; the code is still broken. Vurnix is the deterministic gate that makes those shortcuts impossible to hide.</p>
+      <div class="cmd">
+        <span class="txt"><span class="p">$</span> <span id="install">pip install vurnix</span></span>
+        <button id="copy" type="button" aria-label="Copy install command">copy</button>
+      </div>
+      <p class="sub-cmd">then <code>vurnix gate ./myproject</code> — compile + phantom-import + honest test count, one verdict.</p>
+    </div>
+
+    <div class="rv" style="transition-delay:.12s">
+      <div class="term" role="img" aria-label="Terminal: vurnix integrity flags a test file weakened from 17 asserts to 3 and blocks the round.">
+        <div class="head"><span class="tl"><i></i><i></i><i></i></span><span class="name">vurnix integrity — compare</span></div>
+        <div class="body"><pre><span class="l-cmd"><span class="p">$</span> vurnix integrity compare before.json tests/test_api.py</span>
+<span class="l-warn">WEAKENED: asserts dropped 17 &rarr; 3</span>
+<span class="l-warn">WEAKENED: test function(s) deleted: test_redirect_302 (6 &rarr; 5)</span>
+<span class="l-note">integrity: test file WEAKENED &mdash;</span>
+<span class="l-note">do NOT count this round as fixed.</span>
+<span class="l-exit">exit 1</span></pre><span class="stamp">BLOCK</span></div>
+      </div>
+      <p class="caption">Real output. A cloud model, brought in to rescue a failing build, rewrote a 17-assertion test file down to 3 to go green. The gate caught it — and named the deleted test.</p>
+    </div>
+  </div>
+</section>
+
+<!-- MANIFESTO -->
+<div class="manifesto rv">
+  <div class="wrap">
+    <div class="mark">the one rule</div>
+    <div>
+      <q>A check that cannot run<br>is not a check that <b>passed.</b></q>
+      <p class="exp">No model in the loop. No heuristics you have to trust — every check is <b>plain code you can read, with a hard exit code.</b> Missing a toolchain is a labelled <b>SKIP</b>, never a silent OK. Any failing check is a <b>BLOCK</b> and a non-zero exit. There is no &ldquo;mostly green&rdquo;.</p>
+    </div>
+  </div>
+</div>
+
+<!-- PROBLEM -->
+<section class="blk" id="problem">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num">01</span>
+      <h2>How agents game the suite</h2>
+      <p>Shortcuts a human reviewer rarely thinks to check for — and a deterministic checker always does.</p>
+    </div>
+    <div class="cheats rv">
+      <div class="cheat">
+        <span class="idx">01 / weaken</span>
+        <h3>Delete the failing assert</h3>
+        <p>The one line that proved the behaviour is simply removed. What's left still runs — it just tests nothing.</p>
+        <span class="res"><span class="g">suite → green</span> &nbsp;·&nbsp; <span class="b">code still broken</span></span>
+      </div>
+      <div class="cheat">
+        <span class="idx">02 / skip</span>
+        <h3>Skip or xfail the test</h3>
+        <p>A <code>@skip</code> or <code>xfail</code> quietly excuses the case that was catching the bug.</p>
+        <span class="res"><span class="g">suite → green</span> &nbsp;·&nbsp; <span class="b">code still broken</span></span>
+      </div>
+      <div class="cheat">
+        <span class="idx">03 / pad</span>
+        <h3>Pad with <code>assert True</code></h3>
+        <p>New &ldquo;tests&rdquo; that assert nothing inflate the count so coverage floors look satisfied.</p>
+        <span class="res"><span class="g">count → up</span> &nbsp;·&nbsp; <span class="b">nothing verified</span></span>
+      </div>
+      <div class="cheat">
+        <span class="idx">04 / invent</span>
+        <h3>Import what doesn't exist</h3>
+        <p><code>from models import UrlRequest</code> — no such module, anywhere. Valid syntax; fails cryptically later.</p>
+        <span class="res"><span class="g">syntax → ok</span> &nbsp;·&nbsp; <span class="b">module → nowhere</span></span>
+      </div>
+    </div>
+    <p class="cheats-foot rv">Each one turns the suite green without fixing the code. <b>Vurnix makes every one of them a hard, named failure</b> — before anyone claims the tests pass.</p>
+  </div>
+</section>
+
+<!-- CHECKERS -->
+<section class="blk" id="checkers" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num">02</span>
+      <h2>The checkers</h2>
+      <p>Six commands. Each is plain code with a hard exit code — usable standalone or as one composite gate.</p>
+    </div>
+    <div class="tablewrap rv">
+      <table>
+        <thead><tr><th>Command</th><th>Catches</th><th>Languages</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="cmd-cell"><span class="c">vurnix integrity</span></td>
+            <td class="catch">tests being <b>weakened</b> to go green — deleted asserts, new skip/xfail, always-true asserts, deleted test functions</td>
+            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">go</span><span class="lang">java</span></div></td>
+          </tr>
+          <tr>
+            <td class="cmd-cell"><span class="c">vurnix coverage</span></td>
+            <td class="catch"><b>padded</b> test counts — only distinct, non-trivial tests count; <code>assert True</code> and copy-paste duplicates don't</td>
+            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">go</span><span class="lang">java</span></div></td>
+          </tr>
+          <tr>
+            <td class="cmd-cell"><span class="c">vurnix mutation</span></td>
+            <td class="catch"><b>weak</b> tests — mutate the implementation; a mutant your tests don't kill is a coverage gap with a file:line name</td>
+            <td><div class="langs"><span class="lang">py</span><span class="lang">+ C-family</span></div></td>
+          </tr>
+          <tr>
+            <td class="cmd-cell"><span class="c">vurnix phantom</span></td>
+            <td class="catch"><b>invented imports</b> — a module referenced in code that exists nowhere: not stdlib, not local, not vendored</td>
+            <td><div class="langs"><span class="lang">py</span></div></td>
+          </tr>
+          <tr>
+            <td class="cmd-cell"><span class="c">vurnix compile</span></td>
+            <td class="catch">code that <b>doesn't even build</b>, per file, before anyone claims &ldquo;tests pass&rdquo;</td>
+            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">go</span><span class="lang">java</span></div></td>
+          </tr>
+          <tr class="gate">
+            <td class="cmd-cell"><span class="c">vurnix gate</span></td>
+            <td class="catch"><b>composite</b> — compile + phantom + coverage floor, resolved to one honest verdict</td>
+            <td><div class="langs"><span class="lang dash">all</span></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- EVIDENCE -->
+<section class="blk evidence" id="evidence">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num">03</span>
+      <h2>Measured, not claimed</h2>
+      <p>Every checker earned its place catching a real incident in our 12B-class local-model benchmarks.</p>
+    </div>
+    <div class="stats rv">
+      <div class="stat">
+        <div class="fig">17<span class="arw">&rarr;</span><span class="dn">3</span></div>
+        <div class="lbl">asserts a rescue model silently dropped to go green</div>
+        <div class="src">Caught and blocked by <code>integrity</code>, with the deleted test named.</div>
+      </div>
+      <div class="stat">
+        <div class="fig"><span class="up">69%</span><span class="arw">/</span>15%</div>
+        <div class="lbl">mutation score: a behaviour-checking suite vs. status-code theatre, on the same CRUD app</div>
+        <div class="src">A suite that only checks <code>status == 200</code> scores ~15%; real behaviour ~70%.</div>
+      </div>
+      <div class="stat">
+        <div class="fig">4</div>
+        <div class="lbl">languages carry the full honest stack: compile · coverage · anti-weakening · mutation</div>
+        <div class="src">Python · JavaScript · Go · Java — SKIP-labelled when a toolchain is absent.</div>
+      </div>
+      <div class="stat">
+        <div class="fig">0<span class="arw">&rarr;</span><span class="up">47</span></div>
+        <div class="lbl">of 201 real-repo tasks delivered once an execution gate drove the fix-loop</div>
+        <div class="src">Single-shot passed none; the gated loop turned failures into fixes.</div>
+      </div>
+      <div class="stat">
+        <div class="fig">55%<span class="arw">&rarr;</span><span class="up">75%</span></div>
+        <div class="lbl">HumanEval-Go pass rate, single-shot vs. gated fix-loop</div>
+        <div class="src">+20 points from letting a hard gate decide what &ldquo;done&rdquo; means.</div>
+      </div>
+      <div class="stat">
+        <div class="fig phantom" style="font-size:clamp(18px,2.2vw,22px);line-height:1.35">from&nbsp;models<br>import&nbsp;<span style="color:var(--block)">UrlRequest</span></div>
+        <div class="lbl">an import a local model invented — no such module, anywhere</div>
+        <div class="src">Valid syntax; flagged by <code>phantom</code> before it failed cryptically at install.</div>
+      </div>
+    </div>
+    <p class="measured rv">Deterministic orchestration is commoditised. An honest gate that never reports a green it can't defend has no counterpart — that's the whole point.</p>
+  </div>
+</section>
+
+<!-- CLOSING -->
+<section class="blk close">
+  <div class="wrap">
+    <div class="teaser rv">
+      <h2>The trust primitives, in the open.</h2>
+      <p>These checkers are extracted from the gate of a local-first autonomous coding pipeline we run against small local models — an environment where every failure mode of agentic coding shows up early and often. <b>The orchestration pipeline itself isn't in the box.</b> These are its trust primitives: zero runtime dependencies, usable with any agent, harness, or CI.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://pypi.org/project/vurnix/">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg>
+          pip install vurnix <span class="k">· PyPI</span>
+        </a>
+        <a class="btn" href="https://github.com/shiersa/vurnix">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.87-.01-1.71-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.3 9.3 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2z"/></svg>
+          github.com/shiersa/vurnix
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="l"><span class="dot"></span> vurnix — the honest gate for AI-written code · MIT</div>
+    <div class="r">
+      <a href="https://github.com/shiersa/vurnix">GitHub</a><span class="sep">·</span>
+      <a href="https://pypi.org/project/vurnix/">PyPI</a><span class="sep">·</span>
+      <a href="https://github.com/shiersa/vurnix#readme">Docs</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // copy install command
+  (function(){
+    var b=document.getElementById('copy');
+    if(!b) return;
+    b.addEventListener('click',function(){
+      var t=document.getElementById('install').textContent.trim();
+      var done=function(){b.textContent='copied';b.classList.add('copied');setTimeout(function(){b.textContent='copy';b.classList.remove('copied');},1600);};
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done).catch(done);}
+      else{try{var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}done();}
+    });
+  })();
+  // staggered scroll reveals
+  (function(){
+    var els=document.querySelectorAll('.rv');
+    if(!('IntersectionObserver'in window)){els.forEach(function(e){e.classList.add('in');});return;}
+    var io=new IntersectionObserver(function(en){
+      en.forEach(function(x){if(x.isIntersecting){x.target.classList.add('in');io.unobserve(x.target);}});
+    },{threshold:.12,rootMargin:'0px 0px -8% 0px'});
+    els.forEach(function(e){io.observe(e);});
+  })();
+</script>
+</body>
+</html>
