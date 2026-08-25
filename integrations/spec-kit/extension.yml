@@ -1,0 +1,55 @@
+schema_version: "1.0"
+
+extension:
+  id: vurnix
+  name: "Vurnix Honest Gate"
+  version: "0.1.0"
+  description: "Deterministic three-state honest gate for AI-written code:
+    compile + phantom-import + honest test count in one verdict, executed as
+    code — not as agent self-review. PASS (exit 0) / BLOCK (exit 1) /
+    UNPROVEN (exit 3): a check that cannot run is not a check that passed."
+  author: shiersa
+  repository: https://github.com/shiersa/vurnix-spec-kit
+  homepage: https://vurnix.dev
+  license: MIT
+
+requires:
+  speckit_version: ">=0.16.2"
+
+provides:
+  scripts:
+    - name: vurnix-gate
+      file: scripts/bash/vurnix-gate.sh
+      description: "Run the deterministic Vurnix gate and propagate its
+        three-state exit code (0 PASS / 1 BLOCK / 3 UNPROVEN) unchanged"
+      runtimes:
+        - bash
+
+  commands:
+    - name: speckit.vurnix.gate
+      file: commands/speckit.vurnix.gate.md
+      description: "Execute the deterministic honest gate over the
+        implementation and relay its verdict verbatim — the agent runs the
+        script; it never grades the code itself"
+
+hooks:
+  after_implement:
+    command: speckit.vurnix.gate
+    optional: true
+    prompt: "Run the deterministic Vurnix honest gate over the implementation?"
+    description: "One script call, one machine verdict: PASS / BLOCK / UNPROVEN"
+
+tags:
+  - anti-weakening
+  - deterministic
+  - exit-code
+  - fail-closed
+  - honest-gate
+  - mutation-testing
+  - phantom-imports
+  - quality
+  - spec-kit
+  - spec-kit-extension
+  - test-integrity
+  - three-state
+  - unproven
