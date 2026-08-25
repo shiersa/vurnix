@@ -251,7 +251,8 @@ def test_ac2_coverage_counts_dedup_nontrivial():
 
 def test_ac2_coverage_trivial_only_is_zero():
     proc = run_cli("coverage", FIX / "coverage" / "trivial_only")
-    assert proc.returncode == 0, f"stderr={proc.stderr!r}"
+    # FEAT-025 spec 变更: 计数 0 现为 UNPROVEN → exit 3（stdout 仍打印 0）
+    assert proc.returncode == 3, f"stderr={proc.stderr!r}"
     out = proc.stdout.strip()
     assert out, "coverage 应在 stdout 打印一个整数"
     assert int(out) == 0, f"纯平凡测试应计 0，实际输出 {out!r}"
