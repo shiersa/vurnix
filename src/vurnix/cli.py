@@ -25,6 +25,15 @@ test suites. A check that cannot run is not a check that passed.
   vurnix phantom <dir>       imports that exist nowhere
   vurnix compile <dir>       four-language compile gate (py/js/go/java)
 
+Verdicts are three-state — enforced by exit code, because
+a check that cannot run is not a check that passed:
+
+  0 PASS      everything measured, everything green
+  1 BLOCK     a check failed (fail-dominant: beats UNPROVEN)
+  2 usage     bad invocation
+  3 UNPROVEN  nothing was actually measured (missing toolchain,
+              zero tests, zero mutants, red baseline)
+
 Extracted from the gate of a local-first autonomous coding pipeline;
 usable with any agent, harness, or CI.
 

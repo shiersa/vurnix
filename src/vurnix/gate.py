@@ -2,16 +2,23 @@
 
 Composes, in order: compile (does it build?), phantom (does every import resolve?), and
 coverage (how many distinct non-trivial tests exist — with an optional ``--min-tests``
-floor). Any failing checker is a BLOCK and the exit code is non-zero; there is no "mostly
-green". Checkers that need extra inputs are reported SKIP with instructions rather than
-silently omitted:
+floor). The verdict is three-state and fail-dominant (BLOCK > UNPROVEN > PASS):
+
+- any failing checker is a BLOCK (exit 1) — there is no "mostly green";
+- a checker that could not actually measure anything (compile checks skipped for lack of
+  toolchain/sources, zero non-trivial tests found) makes the verdict UNPROVEN (exit 3) —
+  a check that cannot run is not a check that passed;
+- PASS (exit 0) means everything measured, everything green.
+
+Checkers that need extra inputs the composite does not take are reported SKIP with
+instructions rather than silently omitted (disclosure, not verdict):
 
 - integrity needs a before/after pair (``vurnix integrity snapshot`` first)
 - mutation needs your test command (``vurnix mutation run <dir> -- <test-cmd>``)
 
 Usage::
 
-    vurnix gate <dir> [--min-tests N]     # exit 0 = PASS, 1 = BLOCK, 2 = usage
+    vurnix gate <dir> [--min-tests N]     # exit 0 = PASS, 1 = BLOCK, 3 = UNPROVEN, 2 = usage
 """
 
 import os
@@ -38,13 +45,17 @@ def run(args):
             return 2
 
     blocks = []
+    unproven = []
     print("vurnix gate: %s" % root)
 
-    lines, compile_failures = compilegate.check(root)
+    lines, compile_failures, compile_skips = compilegate.check(root)
     for ln in lines:
         print("  %s" % ln)
     if compile_failures:
         blocks.append("compile: %d failure(s)" % compile_failures)
+    elif compile_skips:
+        unproven.append("compile: %d check(s) did not run (missing toolchain/module "
+                        "context or no sources)" % compile_skips)
 
     phantoms = phantom.find_phantoms(root, os.path.join(root, '.deps'))
     if phantoms:
@@ -59,6 +70,9 @@ def run(args):
     if min_tests and n_tests < min_tests:
         print("  coverage: BLOCK — %d distinct non-trivial test(s) < floor %d" % (n_tests, min_tests))
         blocks.append("coverage: %d < %d" % (n_tests, min_tests))
+    elif n_tests == 0:
+        print("  coverage: UNPROVEN — 0 distinct non-trivial test(s); nothing was verified")
+        unproven.append("coverage: 0 tests — nothing verified")
     else:
         print("  coverage: %d distinct non-trivial test(s)%s"
               % (n_tests, " (floor %d met)" % min_tests if min_tests else ""))
@@ -72,5 +86,10 @@ def run(args):
         for b in blocks:
             print("  BLOCK %s" % b)
         return 1
+    if unproven:
+        print("RESULT: UNPROVEN")
+        for u in unproven:
+            print("  UNPROVEN %s" % u)
+        return 3
     print("RESULT: PASS")
     return 0

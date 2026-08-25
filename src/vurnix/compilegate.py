@@ -14,7 +14,9 @@ reason — never silently counted as OK. A check that cannot run is not a check 
 
 Usage::
 
-    vurnix compile <dir>      # exit 0 = everything checked compiles; 1 = failures; 2 = usage
+    vurnix compile <dir>      # exit 0 = everything checked compiles; 1 = failures;
+                              # 3 = UNPROVEN (skipped checks / no sources — nothing
+                              # was actually proven); 2 = usage
 """
 
 import os
@@ -55,11 +57,13 @@ def _run(cmd, cwd=None):
 
 
 def check(root):
-    """-> (report_lines, failure_count). SKIP lines are informational, never counted as OK."""
+    """-> (report_lines, failure_count, skip_count). A SKIP is never counted as OK — the
+    skip_count lets callers turn "checks that did not run" into an UNPROVEN verdict."""
     root = os.path.abspath(root)
     py, js, go, java = _collect(root)
     lines = []
     failures = 0
+    skips = 0
 
     if py:
         bad = []
@@ -78,6 +82,7 @@ def check(root):
     if js:
         if shutil.which('node') is None:
             lines.append("compile js: SKIP (node toolchain not found — %d file(s) NOT checked)" % len(js))
+            skips += 1
         else:
             bad = []
             for f in js:
@@ -94,8 +99,10 @@ def check(root):
     if go:
         if shutil.which('go') is None:
             lines.append("compile go: SKIP (go toolchain not found — %d file(s) NOT checked)" % len(go))
+            skips += 1
         elif not os.path.isfile(os.path.join(root, 'go.mod')):
             lines.append("compile go: SKIP (no go.mod — no module context to build in; %d file(s) NOT checked)" % len(go))
+            skips += 1
         else:
             rc, out = _run(['go', 'vet', './...'], cwd=root)
             if rc != 0:
@@ -129,10 +136,12 @@ def check(root):
                 lines.append("compile java: OK (javac, %d file(s))" % len(java))
         else:
             lines.append("compile java: SKIP (no mvn/javac toolchain — %d file(s) NOT checked)" % len(java))
+            skips += 1
 
     if not lines:
-        lines.append("compile: no source files found under %s" % root)
-    return lines, failures
+        lines.append("compile: SKIP (no source files found under %s — nothing to prove)" % root)
+        skips += 1
+    return lines, failures, skips
 
 
 def run(args):
@@ -142,7 +151,13 @@ def run(args):
     if not os.path.isdir(args[0]):
         sys.stderr.write("compile: not a directory: %s\n" % args[0])
         return 2
-    lines, failures = check(args[0])
+    lines, failures, skips = check(args[0])
     for ln in lines:
         print(ln)
-    return 1 if failures else 0
+    if failures:
+        return 1
+    if skips:
+        print("compile: UNPROVEN — %d check(s) did not run; a check that cannot run "
+              "is not a check that passed" % skips)
+        return 3
+    return 0

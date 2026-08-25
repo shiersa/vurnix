@@ -5,6 +5,10 @@ implementation, run the tests — a mutant the tests still PASS on "survived" an
 test gap. SIGNAL by default (report + exit 0); ``--strict --threshold P`` fails when the
 mutation score < P. Pure stdlib AST mutator — no mutmut/cosmic-ray dependency.
 
+Two UNPROVEN conditions (exit 3, never a pass): the un-mutated baseline test command
+already fails (a red baseline "kills" every mutant — the score would be a lie), and zero
+mutants generated (nothing measured).
+
 Usage::
 
     vurnix mutation mutants <file>
@@ -196,6 +200,13 @@ def _impl_files(target):
 
 
 def run_mode(target, test_cmd, max_mutants, strict, threshold):
+    # A red baseline makes every mutant look "killed" — the score would be a lie. Measure
+    # only from green; anything else is UNPROVEN (exit 3), not a pass.
+    baseline_rc = subprocess.call(test_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if baseline_rc != 0:
+        sys.stderr.write("mutation: UNPROVEN — baseline test command fails before any "
+                         "mutation (rc=%d); kill rate is unmeasurable on a red baseline\n" % baseline_rc)
+        return 3
     killed = survived = 0
     survivors = []
     stop = False
@@ -225,7 +236,11 @@ def run_mode(target, test_cmd, max_mutants, strict, threshold):
         if stop:
             break
     total = killed + survived
-    score = (killed / total) if total else 1.0
+    if total == 0:
+        sys.stderr.write("mutation: UNPROVEN — 0 mutants generated; test strength was "
+                         "not measured (unmeasured is not passing)\n")
+        return 3
+    score = killed / total
     sys.stderr.write("mutation: %d/%d killed — score %.0f%%%s\n"
                      % (killed, total, 100 * score, " (bounded by --max)" if stop else ""))
     if survivors:
