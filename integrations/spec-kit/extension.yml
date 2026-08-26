@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: vurnix
   name: "Vurnix Honest Gate"
-  version: "0.1.0"
+  version: "0.1.1"
   description: "Deterministic three-state honest gate for AI-written code:
     compile + phantom-import + honest test count in one verdict, executed as
     code — not as agent self-review. PASS (exit 0) / BLOCK (exit 1) /

@@ -20,7 +20,7 @@ yourself, and you never soften the verdict.
 2. Run the provided script:
 
    ```sh
-   .specify/scripts/bash/vurnix-gate.sh <dir>
+   .specify/extensions/vurnix/scripts/bash/vurnix-gate.sh <dir>
    ```
 
    Pass `--min-tests N` after the directory if the feature's plan declares a
