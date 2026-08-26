@@ -15,6 +15,8 @@ so all four counts are summed (the other languages contribute 0). Deterministic,
 Usage::
 
     vurnix coverage <dir>     # prints ONE integer: the qualifying distinct count
+                              # exit 0 = counted >0, 3 = counted 0 (UNPROVEN: nothing
+                              # verified is not a pass), 2 = usage
 """
 
 import ast
@@ -211,9 +213,9 @@ def count_all(root):
 
 
 def run(args):
-    if len(args) != 1:
+    if len(args) != 1 or not os.path.isdir(args[0]):
         sys.stderr.write("usage: vurnix coverage <dir>\n")
-        print(0)
-        return 0
-    print(count_all(args[0]))
-    return 0
+        return 2
+    n = count_all(args[0])
+    print(n)
+    return 0 if n else 3

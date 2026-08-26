@@ -15,8 +15,19 @@ vurnix gate ./myproject        # compile + phantom-import + honest test count, o
 ```
 
 **The design rule everything here follows: a check that cannot run is not a check that
-passed.** Missing toolchain? That's a labelled `SKIP`, never a silent `OK`. Any failing
-check is a `BLOCK` and a non-zero exit — there is no "mostly green".
+passed — enforced by exit code.** Verdicts are three-state, fail-dominant
+(`BLOCK` > `UNPROVEN` > `PASS`):
+
+| Exit | Verdict | Meaning |
+|---|---|---|
+| 0 | `PASS` | everything measured, everything green |
+| 1 | `BLOCK` | a check failed — there is no "mostly green" |
+| 2 | usage | bad invocation |
+| 3 | `UNPROVEN` | nothing was actually measured: missing toolchain, zero non-trivial tests, zero mutants, a red baseline. Not a failure — but never a pass. |
+
+Missing toolchain? That's a labelled `SKIP` that turns the verdict `UNPROVEN`, never a
+silent `OK`. A suite that measures nothing exits 3, not 0 — "ran nothing" is a state of
+its own, not a flavour of passing.
 
 ## The checkers
 
