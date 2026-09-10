@@ -20,6 +20,7 @@ Usage::
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,7 +32,7 @@ _TIMEOUT = 240
 
 
 def _collect(root):
-    py, js, go, java = [], [], [], []
+    py, js, ts, go, java = [], [], [], [], []
     for dp, dn, fn in os.walk(root):
         dn[:] = [d for d in dn if d not in _SKIP_DIRS and not d.startswith('.')]
         for f in fn:
@@ -40,11 +41,15 @@ def _collect(root):
                 py.append(p)
             elif f.endswith(('.js', '.mjs', '.cjs')):
                 js.append(p)
+            elif f.endswith(('.ts', '.tsx')) and not f.endswith(('.d.ts', '-d.ts')):
+                # .d.ts / *-d.ts are ambient type declarations and tsd-style type tests —
+                # no runtime code, not "unchecked source"
+                ts.append(p)
             elif f.endswith('.go'):
                 go.append(p)
             elif f.endswith('.java'):
                 java.append(p)
-    return sorted(py), sorted(js), sorted(go), sorted(java)
+    return sorted(py), sorted(js), sorted(ts), sorted(go), sorted(java)
 
 
 def _javac_works():
@@ -69,7 +74,7 @@ def check(root):
     """-> (report_lines, failure_count, skip_count). A SKIP is never counted as OK — the
     skip_count lets callers turn "checks that did not run" into an UNPROVEN verdict."""
     root = os.path.abspath(root)
-    py, js, go, java = _collect(root)
+    py, js, ts, go, java = _collect(root)
     lines = []
     failures = 0
     skips = 0
@@ -107,6 +112,38 @@ def check(root):
                 failures += len(bad)
             else:
                 lines.append("compile js: OK (%d file(s))" % len(js))
+
+    if ts:
+        # TypeScript honestly needs the PROJECT'S compiler+config: per-file tsc without the
+        # project's types would fail on every import (environment, not code).
+        tsconfig = os.path.isfile(os.path.join(root, 'tsconfig.json'))
+        if shutil.which('tsc') is None:
+            lines.append("compile ts: SKIP (tsc/TypeScript compiler not found — %d file(s) NOT checked)" % len(ts))
+            skips += 1
+        elif not tsconfig:
+            lines.append("compile ts: SKIP (no tsconfig.json — no project context for tsc; %d file(s) NOT checked)" % len(ts))
+            skips += 1
+        else:
+            rc, out = _run(['tsc', '--noEmit', '-p', root], cwd=root)
+            if rc == 124:
+                lines.append("compile ts: SKIP (tsc timed out after %ds — %d file(s) NOT checked)" % (_TIMEOUT, len(ts)))
+                skips += 1
+            elif rc != 0:
+                errs = [ln for ln in out.splitlines() if re.search(r'error TS\d+', ln)]
+                # TS2307/TS2688/TS7016: cannot find module / type declarations — the
+                # dependencies aren't installed here; that's the environment, not the code
+                env_only = errs and all(re.search(r'error TS(2307|2688|7016)\b', ln) for ln in errs)
+                if env_only:
+                    lines.append("compile ts: SKIP (tsc only reports unresolvable modules — "
+                                 "dependencies not installed here; %d file(s) NOT checked)" % len(ts))
+                    skips += 1
+                else:
+                    lines.append("compile ts: FAIL (tsc --noEmit)")
+                    for ln in (errs or out.splitlines())[:20]:
+                        lines.append("  ts %s" % ln)
+                    failures += 1
+            else:
+                lines.append("compile ts: OK (tsc, %d file(s))" % len(ts))
 
     if go:
         if shutil.which('go') is None:
@@ -149,6 +186,12 @@ def check(root):
             # import "fails" — that verdict would be about the environment, not the code
             lines.append("compile java: SKIP (pom.xml present but no mvn — javac without a "
                          "classpath proves nothing; %d file(s) NOT checked)" % len(java))
+            skips += 1
+        elif os.path.isfile(os.path.join(root, 'build.gradle')) or \
+                os.path.isfile(os.path.join(root, 'build.gradle.kts')):
+            # same reasoning for Gradle projects: compiling outside the build tool proves nothing
+            lines.append("compile java: SKIP (gradle project — compiling outside Gradle "
+                         "proves nothing; %d file(s) NOT checked)" % len(java))
             skips += 1
         elif _javac_works():
             with tempfile.TemporaryDirectory() as tmp:

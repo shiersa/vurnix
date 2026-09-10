@@ -32,7 +32,8 @@ def _find_test_files(root):
         if os.sep + ".deps" in dp or "__pycache__" in dp or os.sep + "site-packages" in dp:
             continue
         for f in fn:
-            if (f.startswith("test_") and f.endswith(".py")) or f.endswith("_test.py"):
+            # test_*.py / *_test.py (pytest), plus the Django-scaffold convention tests.py
+            if (f.startswith("test_") and f.endswith(".py")) or f.endswith("_test.py") or f == "tests.py":
                 out.append(os.path.join(dp, f))
     return out
 
@@ -48,6 +49,13 @@ def _has_real_check(fn):
             name = getattr(n.func, "attr", None) or getattr(n.func, "id", None)
             if name == "raises":            # pytest.raises(...) / raises(...)
                 return True
+            if name and (name.startswith("assert") or name == "fail"):
+                # unittest-style checks: self.assertEqual(...), self.fail(), mock's
+                # assert_called(). Constant-only args prove nothing — assertTrue(True)
+                # is `assert True` in a costume.
+                args = list(n.args) + [kw.value for kw in n.keywords]
+                if name == "fail" or not args or any(not isinstance(a, ast.Constant) for a in args):
+                    return True
     return False
 
 
@@ -99,8 +107,11 @@ def _find_js_test_files(root):
         rel = os.path.relpath(dp, root)
         top = rel.split(os.sep)[0]
         for f in fn:
-            if f.endswith(".test.js") or f.endswith(".spec.js") or \
-                    (f.endswith(".js") and top in ("test", "tests")):
+            # .test./.spec. in js OR ts flavours anywhere, plus plain source files under a
+            # top-level test/ or tests/ dir (mocha convention) — TS syntax is regex-compatible
+            if f.endswith((".test.js", ".spec.js", ".test.ts", ".spec.ts",
+                           ".test.tsx", ".spec.tsx", ".test.jsx", ".spec.jsx")) or \
+                    (f.endswith((".js", ".ts", ".jsx", ".tsx")) and top in ("test", "tests")):
                 out.append(os.path.join(dp, f))
     return out
 

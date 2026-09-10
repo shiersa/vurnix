@@ -52,12 +52,14 @@ _PREINSTALLED = {'pytest', 'pytest_asyncio', '_pytest', 'py', 'setuptools', 'pip
 # platform-runtime namespaces that exist only inside their interpreter (Pyodide/Emscripten)
 _PLATFORM_RUNTIME = {'js', 'pyodide', 'micropip'}
 
-# Common import-name -> distribution-name mismatches (normalization can't bridge these).
+# Common import-name -> distribution-name(s) mismatches (normalization can't bridge these).
 _ALIASES = {
     'PIL': 'pillow', 'cv2': 'opencv-python', 'yaml': 'pyyaml', 'sklearn': 'scikit-learn',
     'bs4': 'beautifulsoup4', 'dateutil': 'python-dateutil', 'dotenv': 'python-dotenv',
     'attr': 'attrs', 'OpenSSL': 'pyopenssl', 'jwt': 'pyjwt', 'docx': 'python-docx',
-    'magic': 'python-magic',
+    'magic': 'python-magic', 'rest_framework': 'djangorestframework', 'grpc': 'grpcio',
+    'git': 'gitpython',
+    'google': ('protobuf', 'googleapis-common-protos'), 'mpl_toolkits': 'matplotlib',
 }
 
 # leading distribution name in a requirement string ("foo-bar[extra]>=1.0 ; ..." -> foo-bar)
@@ -171,10 +173,25 @@ def declared_deps(root):
     sc = os.path.join(root, 'setup.cfg')
     if os.path.isfile(sc):
         out |= _deps_from_setup_cfg(sc)
+    for env in ('environment.yml', 'environment.yaml'):
+        ep = os.path.join(root, env)
+        if os.path.isfile(ep):
+            try:
+                # conda env file, no yaml dep needed: every "- item" list entry is a
+                # candidate requirement (conda deps and the nested pip: sublist alike;
+                # stray list items from other keys can only mark a name declared)
+                items = [re.sub(r'^\s*-\s*', '', ln) for ln in
+                         open(ep, encoding='utf-8', errors='ignore')
+                         if re.match(r'^\s*-\s+\S', ln)]
+                out |= _names_from_req_lines(items)
+            except OSError:
+                pass
     req_files = []
     try:
+        # anything *requirements*.txt at the root: requirements-dev.txt, dev-requirements.txt,
+        # docs-requirements.txt — the wild all use the word, just not always as a prefix
         req_files += [os.path.join(root, f) for f in os.listdir(root)
-                      if f.startswith('requirements') and f.endswith('.txt')]
+                      if 'requirements' in f and f.endswith('.txt')]
     except OSError:
         pass
     for sub in ('requirements', 'docs'):                      # requirements/ dir; RTD-style docs/requirements*.txt
@@ -297,12 +314,15 @@ def resolvable(name, search):
 
 
 def _declared_matches(name, declared):
-    """Normalized-name match, plus the classic prefix/suffix families the ecosystem uses
-    for import-name/distribution-name pairs (socks/pysocks, markdown_it/markdown-it-py)."""
+    """Normalized-name match, plus the naming families the ecosystem actually uses:
+    py-prefix (socks/pysocks), python_-prefix, and the namespace-package family — a
+    distribution named `<import>_<part>` provides `import <import>` (opentelemetry-api ->
+    opentelemetry, markdown-it-py -> markdown_it, backports-*)."""
     n = _norm(name)
-    if n in declared:
+    if n in declared or ('py' + n) in declared or ('python_' + n) in declared:
         return True
-    return any(form in declared for form in ('py' + n, n + '_py', n + '_python', 'python_' + n))
+    prefix = n + '_'
+    return any(d.startswith(prefix) for d in declared)
 
 
 def _file_base(file_dir, outer_base, cache):
@@ -363,8 +383,11 @@ def find_phantoms(root, deps):
                 continue
             if _declared_matches(name, declared | outer_declared):
                 continue
-            if name in _ALIASES and _norm(_ALIASES[name]) in (declared | outer_declared):
-                continue
+            alias = _ALIASES.get(name)
+            if alias:
+                dists = alias if isinstance(alias, tuple) else (alias,)
+                if any(_norm(d) in (declared | outer_declared) for d in dists):
+                    continue
             if name == os.path.basename(base):
                 continue
             out.append((rel, name))

@@ -97,21 +97,29 @@ where only Sphinx is declared still flags).
 
 ## Validated on real code
 
-The checkers are run against 15 well-known open-source repos across four languages
+The checkers are run against **22 real repos** in two targeted rounds — libraries
 (flask, click, jinja, rich, tinydb, httpx, attrs, urllib3, pytest, express, axios,
-commander.js, gin, chi, spring-petclinic):
+commander.js, gin, chi, spring-petclinic) and application-shaped codebases
+(a Django app, a FastAPI template, a TS-first framework (hono), a Gradle project
+(junit5), a Python monorepo (opentelemetry-python), a conda project (geopandas),
+and an AI-pipeline-built app):
 
 - **Shipped-code trees: zero phantom false positives** on every Python repo and
-  layout tested — src/ layout, flat packages, poetry/hatch/setuptools/PEP 735
-  metadata, version- and platform-conditional imports.
-- 7 repo roots gate **PASS** outright; toolchain-limited runs (go modules not
-  fetched, no JDK installed) verdict **UNPROVEN** — never a fake FAIL, never a
-  fake pass. Mocha-style `test/` suites are counted (1,000+ tests in express).
-- What still gets flagged on repo *roots* is a true statement every time: imports
-  that resolve only by transitive luck (`typing_extensions` used, never declared),
-  doc snippets importing made-up packages, and test fixtures wired up by conftest
-  `sys.path` injection at runtime. A deterministic scanner can't bless those — and
-  doesn't pretend to.
+  layout tested — src/ and flat layouts; poetry/hatch/setuptools/PEP 735/conda
+  metadata; namespace packages; version- and platform-conditional imports;
+  Django-style `tests.py` and unittest `self.assert*` both count as real tests.
+- 6 repo roots gate **PASS** outright (including the AI-built app). 7 verdict
+  **UNPROVEN** for honest reasons stated in the output: TypeScript source with no
+  `tsc` available, a Gradle build we won't fake with raw `javac`, go modules not
+  fetched, no JDK — and one famous example app that genuinely ships **zero tests**
+  (the gate said so; `find` agrees). Never a fake FAIL, never a fake pass.
+  Mocha `test/` suites and TS/vitest suites are counted (2,500+ tests in hono).
+- The 9 remaining repo-root BLOCKs contain **only true statements**: imports that
+  resolve by transitive luck (`sqlalchemy` used everywhere, only `sqlmodel`
+  declared; `typing_extensions` used, never declared), doc snippets importing
+  made-up packages, tooling scripts with undeclared deps, and test fixtures wired
+  up by conftest `sys.path` injection at runtime. A deterministic scanner can't
+  bless those — and doesn't pretend to.
 
 Known limits (deliberate): transitive dependencies aren't resolved; runtime
 `sys.path` manipulation is invisible to static analysis. `scripts/selfcheck.sh`
