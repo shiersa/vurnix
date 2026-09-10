@@ -87,12 +87,20 @@ _JS_ASSERT = re.compile(r"\bassert\s*[.(]|\bexpect\s*\(")
 
 
 def _find_js_test_files(root):
+    """*.test.js / *.spec.js anywhere, plus plain .js under a top-level test/ or tests/
+    directory (the mocha convention — express-style suites live in test/*.js). Non-test
+    helpers swept up by the directory rule are harmless: only assertion-bearing
+    test()/it() blocks are counted anyway."""
     out = []
+    root = os.path.abspath(root)
     for dp, dn, fn in os.walk(root):
         if os.sep + "node_modules" in dp or os.sep + ".deps" in dp:
             continue
+        rel = os.path.relpath(dp, root)
+        top = rel.split(os.sep)[0]
         for f in fn:
-            if f.endswith(".test.js") or f.endswith(".spec.js"):
+            if f.endswith(".test.js") or f.endswith(".spec.js") or \
+                    (f.endswith(".js") and top in ("test", "tests")):
                 out.append(os.path.join(dp, f))
     return out
 

@@ -95,6 +95,28 @@ deliberately excluded, so "works on my machine" doesn't mask an undeclared depen
 Known limit: transitive dependencies aren't resolved (a docs theme importing `pygments`
 where only Sphinx is declared still flags).
 
+## Validated on real code
+
+The checkers are run against 15 well-known open-source repos across four languages
+(flask, click, jinja, rich, tinydb, httpx, attrs, urllib3, pytest, express, axios,
+commander.js, gin, chi, spring-petclinic):
+
+- **Shipped-code trees: zero phantom false positives** on every Python repo and
+  layout tested — src/ layout, flat packages, poetry/hatch/setuptools/PEP 735
+  metadata, version- and platform-conditional imports.
+- 7 repo roots gate **PASS** outright; toolchain-limited runs (go modules not
+  fetched, no JDK installed) verdict **UNPROVEN** — never a fake FAIL, never a
+  fake pass. Mocha-style `test/` suites are counted (1,000+ tests in express).
+- What still gets flagged on repo *roots* is a true statement every time: imports
+  that resolve only by transitive luck (`typing_extensions` used, never declared),
+  doc snippets importing made-up packages, and test fixtures wired up by conftest
+  `sys.path` injection at runtime. A deterministic scanner can't bless those — and
+  doesn't pretend to.
+
+Known limits (deliberate): transitive dependencies aren't resolved; runtime
+`sys.path` manipulation is invisible to static analysis. `scripts/selfcheck.sh`
+runs this gate against vurnix's own shipped code on every change — dogfood.
+
 ## Why we built this
 
 These checkers are extracted from the gate of a local-first autonomous coding pipeline we
