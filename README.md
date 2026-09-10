@@ -36,7 +36,7 @@ its own, not a flavour of passing.
 | `vurnix integrity` | tests being **weakened** to go green (deleted asserts, new skip/xfail, always-true asserts, deleted test functions) | py, js, go, java |
 | `vurnix coverage` | **padded** test counts — only distinct, non-trivial tests count (`assert True` and copy-paste duplicates don't) | py, js, go, java |
 | `vurnix mutation` | **weak** tests — mutate the implementation; a mutant your tests don't kill is a coverage gap with a file:line name | py + C-family |
-| `vurnix phantom` | **invented imports** — a module referenced in code that exists nowhere (not stdlib, not local, not vendored) | py |
+| `vurnix phantom` | **invented imports** — a module referenced in code that exists nowhere (not stdlib, not local — incl. `src/` layout — not vendored, and not a declared dependency; `try/except ImportError` and `TYPE_CHECKING` guards respected) | py |
 | `vurnix compile` | code that **doesn't even build**, per file, before anyone claims "tests pass" | py, js, go, java |
 | `vurnix gate` | composite: compile + phantom + coverage floor, one honest verdict | — |
 
@@ -82,9 +82,18 @@ actionable. Stdlib AST for Python; conservative masked-regex operators for JS/Go
 Real example from our benchmarks: a 12B local model wrote `from models import UrlRequest`
 and `from db import Database` — no `models.py`, no `db.py`, no such packages. Syntax checks
 pass (it *is* valid syntax); the failure surfaces later as a cryptic install error. This
-prints the file and the invented module, before anything runs. Host site-packages are
-deliberately excluded from resolution, so "works on my machine" doesn't mask a missing
-dependency.
+prints the file and the invented module, before anything runs.
+
+An import is NOT a phantom when it is stdlib; local (incl. `src/` layout and `tests/`
+helpers); vendored in the deps dir; or a **declared dependency** — pyproject
+`[project]`/`[dependency-groups]`, `requirements*.txt` (incl. `requirements/` and
+`docs/`), `setup.py`/`setup.cfg` — with declaration files discovered upward from the
+scanned dir, and a small alias table for the classic name mismatches (`yaml`/pyyaml,
+`PIL`/pillow, ...). Imports inside `try/except ImportError` (any leg) or `if
+TYPE_CHECKING:` are deliberate optionality, not phantoms. Host site-packages remain
+deliberately excluded, so "works on my machine" doesn't mask an undeclared dependency.
+Known limit: transitive dependencies aren't resolved (a docs theme importing `pygments`
+where only Sphinx is declared still flags).
 
 ## Why we built this
 
