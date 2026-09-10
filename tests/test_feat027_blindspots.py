@@ -39,6 +39,18 @@ AC6 回归：不新增文件级断言——由全量跑保证（写作时既有�
      纯常量参数 = 平凡，与裸 assert True 同判）；版本类测试勿新增（下限钉已在
      test_feat025 AC6（≥0.3.0）与 test_bug028（≥0.3.1），0.3.2 精确值属发布相位核验）。
 
+第二轮实测追加 R2a-d（spec 回填节；防回退钉，追加时精修已实现，预期直接绿；
+非复现红测——先例同 test_feat026 的 H/I）:
+R2a 声明文件名泛化（根目录任意 *requirements*.txt，otel 现场）:
+     test_r2a_requirements_variant_files_are_declaration_sources
+R2b 命名空间包规则（声明名 = import名 + `_` 前缀族；囊括原 _py/_python 后缀规则）:
+     test_r2b_namespace_prefix_family_resolves_control_not_substring
+R2c 别名补条（rest_framework→djangorestframework；google→(protobuf|…) 元组任一命中）:
+     test_r2c_alias_rest_framework_and_tuple_alias_google_not_flagged
+R2d TS 源排除 .d.ts / *-d.ts（纯类型声明与 tsd 类型测试非运行时源码，commander 现场）:
+     test_r2d_declaration_ts_excluded_compile_clean      （skipif 无 node）
+     test_r2d_declaration_ts_fixture_gate_pass           （skipif 无 node）
+
 夹具备注（reviewer 会签依据）:
 - AC1 基类均在夹具内自定义（TestCase / ApiTestBase），不导入 django——识别不得
   依赖 django 可导入，且不得依赖基类恰好名为 TestCase。
@@ -460,4 +472,195 @@ def test_ac5_conda_control_invented_still_flagged(tmp_path):
     assert "conda_invented9" in flagged, (
         f"AC5 对照：conda_invented9 未声明、非本地、无守卫，仍必须标为幻影；"
         f"实际 stdout：{proc.stdout!r}"
+    )
+
+
+# ============== 第二轮实测追加 R2a-d（防回退钉，预期直接绿） ==============
+
+
+# ---------------- R2a 声明文件名泛化：根目录 *requirements*.txt（otel 现场）
+
+
+def test_r2a_requirements_variant_files_are_declaration_sources(tmp_path):
+    # dev-requirements.txt / docs-requirements.txt 形态也是声明源；
+    # 对照内嵌：同夹具纯发明名仍必须标——泛化的是文件名，不是放行全目录。
+    work = tmp_path / "proj"
+    _write(work, "dev-requirements.txt", "devreq9>=1\n")
+    _write(work, "docs-requirements.txt", "docsreq8\n")
+    _write(
+        work,
+        "app.py",
+        "import devreq9\nimport docsreq8\nimport reqs_invented5\n",
+    )
+    flagged, _, proc = run_phantom(work)
+    assert "devreq9" not in flagged, (
+        f"R2a：根目录 dev-requirements.txt 已声明 devreq9，"
+        f"import devreq9 不得标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+    assert "docsreq8" not in flagged, (
+        f"R2a：根目录 docs-requirements.txt 已声明 docsreq8，"
+        f"import docsreq8 不得标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+    assert "reqs_invented5" in flagged, (
+        f"R2a 对照：reqs_invented5 未在任何 *requirements*.txt 声明，"
+        f"仍必须标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+
+
+# ------------- R2b 命名空间包规则：声明名 = import名 + `_` 前缀族（otel 现场）
+
+
+def test_r2b_namespace_prefix_family_resolves_control_not_substring(tmp_path):
+    # 声明 opentelemetry2-api（规范化 opentelemetry2_api = opentelemetry2 + _api）
+    # → import opentelemetry2 可解析（命名空间前缀族）；
+    # 对照：声明 foo2bar（foo2 与 bar 之间无 `_` 连接）不得放行 import foo2——
+    # 规则是「下划线边界的前缀」，不是任意子串。
+    work = tmp_path / "proj"
+    _write(
+        work,
+        "pyproject.toml",
+        "[project]\n"
+        'name = "fixture-ns"\n'
+        'version = "0.0.1"\n'
+        'dependencies = ["opentelemetry2-api", "foo2bar"]\n',
+    )
+    _write(work, "app.py", "import opentelemetry2\nimport foo2\n")
+    flagged, _, proc = run_phantom(work)
+    assert "opentelemetry2" not in flagged, (
+        f"R2b：已声明 opentelemetry2-api（= opentelemetry2 + `_` 前缀族），"
+        f"import opentelemetry2 不得标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+    assert "foo2" in flagged, (
+        f"R2b 对照：声明 foo2bar 无下划线连接（foo2bar ≠ foo2 + `_` + …），"
+        f"不得放行 import foo2，仍必须标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+
+
+# ---------- R2c 别名补条：djangorestframework / protobuf 元组别名（实测现场）
+
+
+def test_r2c_alias_rest_framework_and_tuple_alias_google_not_flagged(tmp_path):
+    # 别名表补条：import rest_framework ← 声明 djangorestframework；
+    # import google ← 声明 (protobuf|googleapis-common-protos) 元组任一命中
+    # （本夹具声明 protobuf 即命中）。
+    # 对照内嵌：同夹具纯发明名仍必须标——别名表不是全局放行。
+    work = tmp_path / "proj"
+    _write(
+        work,
+        "pyproject.toml",
+        "[project]\n"
+        'name = "fixture-alias"\n'
+        'version = "0.0.1"\n'
+        'dependencies = ["djangorestframework", "protobuf"]\n',
+    )
+    _write(
+        work,
+        "app.py",
+        "import rest_framework\nimport google\nimport alias_invented4\n",
+    )
+    flagged, _, proc = run_phantom(work)
+    assert "rest_framework" not in flagged, (
+        f"R2c：已声明 djangorestframework（别名表 rest_framework→"
+        f"djangorestframework），import rest_framework 不得标为幻影；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
+    assert "google" not in flagged, (
+        f"R2c：已声明 protobuf（元组别名 google→(protobuf|googleapis-common-"
+        f"protos) 任一命中），import google 不得标为幻影；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
+    assert "alias_invented4" in flagged, (
+        f"R2c 对照：alias_invented4 不在别名表、未声明，仍必须标为幻影；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
+
+
+# ------- R2d TS 源排除 .d.ts / *-d.ts（纯类型声明非运行时源码，commander 现场）
+
+
+def _build_declaration_ts_fixture(tmp_path):
+    """可过的 .js + 真实 .test.js 测试 + 两个纯类型声明文件。
+
+    声明文件内容故意用 TS-only 语法（declare / 泛型）：若实现错误地把
+    .d.ts/*-d.ts 并入 js/ts 运行时源收集，要么走 ts 腿 SKIP（无 tsc）、
+    要么走 js 腿语法 FAIL——两个方向都会被下方断言抓住。
+    """
+    work = tmp_path / "pkg"
+    _write(
+        work,
+        "lib.js",
+        "function add(a, b) {\n"
+        "  return a + b;\n"
+        "}\n"
+        "\n"
+        "module.exports = { add };\n",
+    )
+    _write(
+        work,
+        "lib.test.js",
+        "test('adds numbers', () => {\n"
+        "  expect(2 + 3).toBe(5);\n"
+        "});\n",
+    )
+    _write(
+        work,
+        "types.d.ts",
+        "export declare function add(a: number, b: number): number;\n",
+    )
+    _write(
+        work,
+        "index.test-d.ts",
+        "import { expectType } from 'tsd';\n"
+        "\n"
+        "declare const total: number;\n"
+        "expectType<number>(total);\n",
+    )
+    return work
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="宿主无 node：js 腿无法离线证明，.d.ts 排除断言失去 PASS 基底",
+)
+def test_r2d_declaration_ts_excluded_compile_clean(tmp_path):
+    # PATH 有 node 无 tsc：.d.ts / *-d.ts 被排除出源收集 → compile 不得
+    # 因 ts 判 SKIP/UNPROVEN（输出不含 "compile ts"），js 腿全证 → exit 0。
+    work = _build_declaration_ts_fixture(tmp_path)
+    proc = run_cli(
+        "compile", work, env_overrides=_node_no_tsc_path_env(tmp_path)
+    )
+    out = all_output(proc)
+    assert proc.returncode == 0, (
+        f"R2d：纯类型声明文件被排除后仅剩可过的 js 源，compile 应 exit 0，"
+        f"实际 {proc.returncode}；输出：{out!r}"
+    )
+    assert "compile ts" not in out, (
+        f"R2d：.d.ts/*-d.ts 非运行时源码，不得触发 ts 腿"
+        f"（输出不得含 'compile ts'）；实际输出：{out!r}"
+    )
+    assert "UNPROVEN" not in out, (
+        f"R2d：不得因声明文件判 UNPROVEN；实际输出：{out!r}"
+    )
+    assert "Traceback" not in out, f"R2d：不应崩溃，实际输出：{out!r}"
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None,
+    reason="宿主无 node：js 腿无法离线证明，gate 必然 UNPROVEN 与本钉无关",
+)
+def test_r2d_declaration_ts_fixture_gate_pass(tmp_path):
+    # 同夹具过 gate：真实 .test.js 断言测试（coverage >0）+ 可过 js 源 +
+    # 被排除的声明文件 → RESULT: PASS + exit 0（commander 形态不再假 UNPROVEN）。
+    work = _build_declaration_ts_fixture(tmp_path)
+    proc = run_cli(
+        "gate", work, env_overrides=_node_no_tsc_path_env(tmp_path)
+    )
+    out = all_output(proc)
+    assert proc.returncode == 0, (
+        f"R2d：声明文件夹具 gate 应 exit 0，实际 {proc.returncode}；"
+        f"输出：{out!r}"
+    )
+    assert "RESULT: PASS" in out, (
+        f"R2d：应打印 'RESULT: PASS'（.d.ts 不得把判决拖成 UNPROVEN），"
+        f"实际输出：{out!r}"
     )
