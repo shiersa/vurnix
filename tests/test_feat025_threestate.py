@@ -346,8 +346,11 @@ def test_ac6_version_is_0_3_0():
         timeout=60,
     )
     assert proc.returncode == 0, f"stderr={proc.stderr!r}"
-    assert proc.stdout.strip() == "0.3.0", (
-        f"__version__ 应为 0.3.0，实际 {proc.stdout.strip()!r}"
+    # BUG-028 spec 变更(自动随批): 三态判决自 0.3.0 起交付, 断言由钉死改为下限,
+    # 避免后续 patch 版本再次误伤本测试(精确版本由当次任务的测试钉,如 test_bug028)
+    ver = tuple(int(x) for x in proc.stdout.strip().split("."))
+    assert ver >= (0, 3, 0), (
+        f"__version__ 应 ≥ 0.3.0（三态判决交付版本），实际 {proc.stdout.strip()!r}"
     )
 
 

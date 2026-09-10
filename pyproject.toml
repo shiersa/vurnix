@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vurnix"
-version = "0.3.0"
+version = "0.3.1"
 description = "The honest gate for AI-written code: deterministic checkers that catch weakened tests, padded suites, phantom imports, and code that does not build."
 readme = "README.md"
 requires-python = ">=3.10"
