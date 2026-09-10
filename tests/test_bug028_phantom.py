@@ -28,6 +28,17 @@ AC5  抓幻影能力不回退:
      test_ac5_declared_foo_bar_but_import_other_still_flagged
 版本  0.3.1:
      test_version_is_0_3_1
+
+W-8 实测追加的四处精修（R1-R4，spec 回填后追加的防回退钉，追加时精修已实现，
+预期直接绿；非复现红测）:
+R1   try/except ImportError 的 else 腿同属守卫:
+     test_r1_else_leg_of_import_guard_skipped
+R2   同文件同名传播（传播只限同文件，跨文件裸 import 仍标）:
+     test_r2_same_file_same_name_propagation_other_file_still_flagged
+R3   PEP 735 [dependency-groups] 纳入声明源:
+     test_r3_pep735_dependency_groups_not_flagged
+R4   声明文件向上搜索项目根 + docs/requirements*.txt 纳入:
+     test_r4_upward_root_search_and_docs_requirements_not_flagged
 """
 
 import os
@@ -305,6 +316,114 @@ def test_ac5_declared_foo_bar_but_import_other_still_flagged(tmp_path):
     assert "completely_other" in flagged, (
         f"completely_other 未声明、非别名、无守卫，仍必须标为幻影；"
         f"实际 stdout：{proc.stdout!r}"
+    )
+
+
+# --------------------------------- W-8 精修 R1-R4（防回退钉，预期直接绿）
+
+
+def test_r1_else_leg_of_import_guard_skipped(tmp_path):
+    # R1：try/except ImportError 的 else 腿同属守卫（requests help.py 的
+    # `else: import OpenSSL` 形态），else 腿内的 import 不得标为幻影。
+    work = tmp_path / "proj"
+    _write(
+        work,
+        "guarded_else.py",
+        "try:\n"
+        "    import maybe_a\n"
+        "except ImportError:\n"
+        "    maybe_a = None\n"
+        "else:\n"
+        "    import maybe_a_extra\n",
+    )
+    flagged, _, proc = run_phantom(work)
+    assert "maybe_a_extra" not in flagged, (
+        f"R1：else 腿同属守卫，import maybe_a_extra 不得标为幻影；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
+    assert "maybe_a" not in flagged, (
+        f"R1 前置：try 块内的 import maybe_a 本就不得标；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
+
+
+def test_r2_same_file_same_name_propagation_other_file_still_flagged(tmp_path):
+    # R2：某名在该文件任一守卫 import 出现过 → 该文件内其它同名 import
+    # 视为同一可选性结构（requests compat.py 的 has_simplejson flag 形态）；
+    # 对照：传播只限同文件，另一文件裸 import optmod 无守卫 → 该文件行仍标。
+    work = tmp_path / "proj"
+    _write(
+        work,
+        "compat_like.py",
+        "has_x = False\n"
+        "try:\n"
+        "    import optmod\n"
+        "    has_x = True\n"
+        "except ImportError:\n"
+        "    pass\n"
+        "if has_x:\n"
+        "    from optmod import thing\n",
+    )
+    _write(work, "bare_opt.py", "import optmod\n")
+    flagged, pairs, proc = run_phantom(work)
+    assert ("compat_like.py", "optmod") not in pairs, (
+        f"R2：optmod 在 compat_like.py 内有守卫 import，同文件的 "
+        f"from optmod import thing 不得标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+    assert ("bare_opt.py", "optmod") in pairs, (
+        f"R2 对照：传播只限同文件，bare_opt.py 的裸 import optmod "
+        f"仍必须标；实际 stdout：{proc.stdout!r}"
+    )
+
+
+def test_r3_pep735_dependency_groups_not_flagged(tmp_path):
+    # R3：pyproject 顶层 PEP 735 [dependency-groups] 纳入声明源
+    # （itsdangerous 形态）。
+    work = tmp_path / "proj"
+    _write(
+        work,
+        "pyproject.toml",
+        '[project]\n'
+        'name = "fixture-proj"\n'
+        'version = "0.0.1"\n'
+        '\n'
+        '[dependency-groups]\n'
+        'tests = ["freezegun2"]\n',
+    )
+    _write(work, "app.py", "import freezegun2\n")
+    flagged, _, proc = run_phantom(work)
+    assert "freezegun2" not in flagged, (
+        f"R3：[dependency-groups] 已声明 freezegun2，不得标为幻影；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
+
+
+def test_r4_upward_root_search_and_docs_requirements_not_flagged(tmp_path):
+    # R4：对 <root>/src2 子树跑 phantom，声明文件向上搜索到项目根
+    # （标记 = pyproject 等）仍可见；RTD 约定 docs/requirements*.txt 纳入。
+    root = tmp_path / "proj"
+    _write(
+        root,
+        "pyproject.toml",
+        '[project]\n'
+        'name = "fixture-proj"\n'
+        'version = "0.0.1"\n'
+        'dependencies = ["foo-bar>=1"]\n',
+    )
+    _write(root / "docs", "requirements.txt", "docdep==1.0\n")
+    _write(
+        root / "src2" / "pkg",
+        "app.py",
+        "import foo_bar\nimport docdep\n",
+    )
+    flagged, _, proc = run_phantom(root / "src2")
+    assert "foo_bar" not in flagged, (
+        f"R4：声明在上层 pyproject（向上搜索项目根应发现），"
+        f"import foo_bar 不得标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+    assert "docdep" not in flagged, (
+        f"R4：docs/requirements.txt 已声明 docdep（RTD 约定纳入声明源），"
+        f"不得标为幻影；实际 stdout：{proc.stdout!r}"
     )
 
 
