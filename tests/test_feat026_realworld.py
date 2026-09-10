@@ -37,6 +37,13 @@ G  java 工具链诚实判定（有 pom 无 mvn → SKIP；javac 存在但 -vers
      注：「宿主 javac 为 macOS 无 JDK stub（存在但 -version 失败）」情形无法离线
      确定性模拟（依赖宿主装机状态），该分支交真实仓 spring-petclinic 复验核销。
 
+实测追加的两处精修（H/I，防回退钉，追加时精修已实现，预期直接绿；非复现红测）:
+H  脚本目录语义（importer 文件自身所在目录参与解析；仅限该目录，不向别处放行）:
+     test_h_importer_own_directory_participates_in_resolution
+I  平台运行时内建（js/pyodide/micropip 为 Pyodide/Emscripten 运行时命名空间，
+   策展表放行；表外相近名不放行）:
+     test_i_pyodide_runtime_builtins_not_flagged_control_flagged
+
 夹具备注（reviewer 会签依据）:
 - D 类任务原型「声明 markdown-it-py2 → import markdown_it2」不满足 spec D 规则集
   （i+_py = markdown_it2_py ≠ markdown_it_py2，规范化后无一形式命中），红测将永不可绿；
@@ -464,3 +471,54 @@ def test_g_java_pom_without_toolchain_skip_unproven(tmp_path):
     )
     assert "UNPROVEN" in out, f"G：输出必须含 UNPROVEN 字样，实际：{out!r}"
     assert "Traceback" not in out, f"G：缺工具链不应崩溃，实际输出：{out!r}"
+
+
+# ------------------- H 脚本目录语义（防回退钉，追加时已实现，预期直接绿）
+
+
+def test_h_importer_own_directory_participates_in_resolution(tmp_path):
+    # H：importer 文件自身所在目录参与解析——tests/sub/runner.py 与
+    # tests/sub/fixture_pkg9 同目录 → 对 root 跑 phantom 不标该行；
+    # 对照：root/other.py 不同目录（fixture_pkg9 亦不在 root / root/src /
+    # root/tests 顶层）→ 该行仍标。同名模块跨文件两判，按 pairs 逐行断言。
+    root = tmp_path / "proj"
+    _write(root / "tests" / "sub" / "fixture_pkg9", "__init__.py", "VALUE = 1\n")
+    _write(root / "tests" / "sub", "runner.py", "import fixture_pkg9\n")
+    _write(root, "other.py", "import fixture_pkg9\n")
+    flagged, pairs, proc = run_phantom(root)
+    assert not any(
+        rel.endswith("runner.py") and mod == "fixture_pkg9" for rel, mod in pairs
+    ), (
+        f"H：runner.py 与 fixture_pkg9 同目录（脚本目录语义），"
+        f"其 import fixture_pkg9 不得标为幻影；实际 stdout：{proc.stdout!r}"
+    )
+    assert ("other.py", "fixture_pkg9") in pairs, (
+        f"H 对照：脚本目录语义只对 importer 自身目录生效，root/other.py "
+        f"的 import fixture_pkg9 仍必须标；实际 stdout：{proc.stdout!r}"
+    )
+
+
+# ----------------- I 平台运行时内建（防回退钉，追加时已实现，预期直接绿）
+
+
+def test_i_pyodide_runtime_builtins_not_flagged_control_flagged(tmp_path):
+    # I：js / pyodide / micropip 是 Pyodide/Emscripten 运行时命名空间
+    # （策展表），裸 import（无声明无守卫）不得标；
+    # 对照：表外相近发明名 js_invented9 仍必须标——防策展表变前缀放行。
+    work = tmp_path / "proj"
+    _write(
+        work,
+        "wasm_app.py",
+        "import js\nimport pyodide\nimport micropip\n",
+    )
+    _write(work, "bare.py", "import js_invented9\n")
+    flagged, _, proc = run_phantom(work)
+    for mod in ("js", "pyodide", "micropip"):
+        assert mod not in flagged, (
+            f"I：{mod} 属平台运行时内建策展表，裸 import 不得标为幻影；"
+            f"实际 stdout：{proc.stdout!r}"
+        )
+    assert "js_invented9" in flagged, (
+        f"I 对照：js_invented9 不在策展表、未声明、无守卫，仍必须标为幻影；"
+        f"实际 stdout：{proc.stdout!r}"
+    )
