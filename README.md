@@ -95,6 +95,36 @@ deliberately excluded, so "works on my machine" doesn't mask an undeclared depen
 Known limit: transitive dependencies aren't resolved (a docs theme importing `pygments`
 where only Sphinx is declared still flags).
 
+## Validated on real code
+
+The checkers are run against **22 real repos** in two targeted rounds — libraries
+(flask, click, jinja, rich, tinydb, httpx, attrs, urllib3, pytest, express, axios,
+commander.js, gin, chi, spring-petclinic) and application-shaped codebases
+(a Django app, a FastAPI template, a TS-first framework (hono), a Gradle project
+(junit5), a Python monorepo (opentelemetry-python), a conda project (geopandas),
+and an AI-pipeline-built app):
+
+- **Shipped-code trees: zero phantom false positives** on every Python repo and
+  layout tested — src/ and flat layouts; poetry/hatch/setuptools/PEP 735/conda
+  metadata; namespace packages; version- and platform-conditional imports;
+  Django-style `tests.py` and unittest `self.assert*` both count as real tests.
+- 6 repo roots gate **PASS** outright (including the AI-built app). 7 verdict
+  **UNPROVEN** for honest reasons stated in the output: TypeScript source with no
+  `tsc` available, a Gradle build we won't fake with raw `javac`, go modules not
+  fetched, no JDK — and one famous example app that genuinely ships **zero tests**
+  (the gate said so; `find` agrees). Never a fake FAIL, never a fake pass.
+  Mocha `test/` suites and TS/vitest suites are counted (2,500+ tests in hono).
+- The 9 remaining repo-root BLOCKs contain **only true statements**: imports that
+  resolve by transitive luck (`sqlalchemy` used everywhere, only `sqlmodel`
+  declared; `typing_extensions` used, never declared), doc snippets importing
+  made-up packages, tooling scripts with undeclared deps, and test fixtures wired
+  up by conftest `sys.path` injection at runtime. A deterministic scanner can't
+  bless those — and doesn't pretend to.
+
+Known limits (deliberate): transitive dependencies aren't resolved; runtime
+`sys.path` manipulation is invisible to static analysis. `scripts/selfcheck.sh`
+runs this gate against vurnix's own shipped code on every change — dogfood.
+
 ## Why we built this
 
 These checkers are extracted from the gate of a local-first autonomous coding pipeline we

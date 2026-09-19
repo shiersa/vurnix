@@ -441,6 +441,9 @@ def test_version_is_0_3_1():
         timeout=60,
     )
     assert proc.returncode == 0, f"stderr={proc.stderr!r}"
-    assert proc.stdout.strip() == "0.3.1", (
-        f"__version__ 应为 0.3.1，实际 {proc.stdout.strip()!r}"
+    # FEAT-026 spec 变更(自动随批): phantom 通用化自 0.3.1 起交付, 钉死改下限
+    # (同 FEAT-025 版本断言先例; 精确版本由当次任务测试钉)
+    ver = tuple(int(x) for x in proc.stdout.strip().split("."))
+    assert ver >= (0, 3, 1), (
+        f"__version__ 应 ≥ 0.3.1（phantom 通用化交付版本），实际 {proc.stdout.strip()!r}"
     )

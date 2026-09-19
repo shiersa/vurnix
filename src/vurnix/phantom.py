@@ -49,13 +49,17 @@ _SKIP_DIRS = {'.deps', '.pw-browsers', '__pycache__', '.venv', 'node_modules', '
 # test runners and packaging tools commonly present in the runtime without being vendored
 # or declared — excluding these avoids false phantoms on test files and setup.py.
 _PREINSTALLED = {'pytest', 'pytest_asyncio', '_pytest', 'py', 'setuptools', 'pip', 'wheel'}
+# platform-runtime namespaces that exist only inside their interpreter (Pyodide/Emscripten)
+_PLATFORM_RUNTIME = {'js', 'pyodide', 'micropip'}
 
-# Common import-name -> distribution-name mismatches (normalization can't bridge these).
+# Common import-name -> distribution-name(s) mismatches (normalization can't bridge these).
 _ALIASES = {
     'PIL': 'pillow', 'cv2': 'opencv-python', 'yaml': 'pyyaml', 'sklearn': 'scikit-learn',
     'bs4': 'beautifulsoup4', 'dateutil': 'python-dateutil', 'dotenv': 'python-dotenv',
     'attr': 'attrs', 'OpenSSL': 'pyopenssl', 'jwt': 'pyjwt', 'docx': 'python-docx',
-    'magic': 'python-magic',
+    'magic': 'python-magic', 'rest_framework': 'djangorestframework', 'grpc': 'grpcio',
+    'git': 'gitpython',
+    'google': ('protobuf', 'googleapis-common-protos'), 'mpl_toolkits': 'matplotlib',
 }
 
 # leading distribution name in a requirement string ("foo-bar[extra]>=1.0 ; ..." -> foo-bar)
@@ -90,6 +94,12 @@ def _deps_from_pyproject(path):
         # PEP 735 [dependency-groups] (top-level table); {include-group: ...} dicts skipped
         for group in data.get('dependency-groups', {}).values():
             reqs.extend(item for item in group if isinstance(item, str))
+        # poetry: table KEYS are the distribution names ("python" is the interpreter pin)
+        poetry = data.get('tool', {}).get('poetry', {})
+        for table in (poetry.get('dependencies', {}), poetry.get('dev-dependencies', {})):
+            reqs.extend(k for k in table if k.lower() != 'python')
+        for group in poetry.get('group', {}).values():
+            reqs.extend(k for k in group.get('dependencies', {}) if k.lower() != 'python')
         return _names_from_req_lines(reqs)
     except Exception:
         # py3.10 (no tomllib) or malformed toml: scan quoted strings as requirement
@@ -163,10 +173,25 @@ def declared_deps(root):
     sc = os.path.join(root, 'setup.cfg')
     if os.path.isfile(sc):
         out |= _deps_from_setup_cfg(sc)
+    for env in ('environment.yml', 'environment.yaml'):
+        ep = os.path.join(root, env)
+        if os.path.isfile(ep):
+            try:
+                # conda env file, no yaml dep needed: every "- item" list entry is a
+                # candidate requirement (conda deps and the nested pip: sublist alike;
+                # stray list items from other keys can only mark a name declared)
+                items = [re.sub(r'^\s*-\s*', '', ln) for ln in
+                         open(ep, encoding='utf-8', errors='ignore')
+                         if re.match(r'^\s*-\s+\S', ln)]
+                out |= _names_from_req_lines(items)
+            except OSError:
+                pass
     req_files = []
     try:
+        # anything *requirements*.txt at the root: requirements-dev.txt, dev-requirements.txt,
+        # docs-requirements.txt — the wild all use the word, just not always as a prefix
         req_files += [os.path.join(root, f) for f in os.listdir(root)
-                      if f.startswith('requirements') and f.endswith('.txt')]
+                      if 'requirements' in f and f.endswith('.txt')]
     except OSError:
         pass
     for sub in ('requirements', 'docs'):                      # requirements/ dir; RTD-style docs/requirements*.txt
@@ -201,6 +226,14 @@ def _is_type_checking(test):
            (isinstance(test, ast.Attribute) and test.attr == 'TYPE_CHECKING')
 
 
+def _is_env_conditional(test):
+    """`if sys.version_info >= (3, 11):` / `if sys.platform == "emscripten":` — both
+    branches are environment-conditional optionality (the leg that doesn't run here may
+    be the one that runs elsewhere), so imports in either leg are not phantoms."""
+    return any(isinstance(n, ast.Attribute) and n.attr in ('version_info', 'platform')
+               for n in ast.walk(test))
+
+
 def _collect_imports(tree):
     """-> (live, guarded) lists of top-level names from absolute imports. Guarded = inside
     a try whose handlers catch ImportError — body, handler AND else legs all belong to the
@@ -224,6 +257,10 @@ def _collect_imports(tree):
         if isinstance(node, ast.If) and _is_type_checking(node.test):
             for child in node.orelse:
                 visit(child, g)
+            return
+        if isinstance(node, ast.If) and _is_env_conditional(node.test):
+            for child in node.body + node.orelse:
+                visit(child, True)
             return
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             emit(node, g)
@@ -276,22 +313,83 @@ def resolvable(name, search):
         importlib.invalidate_caches()
 
 
+def _declared_matches(name, declared):
+    """Normalized-name match, plus the naming families the ecosystem actually uses:
+    py-prefix (socks/pysocks), python_-prefix, and the namespace-package family — a
+    distribution named `<import>_<part>` provides `import <import>` (opentelemetry-api ->
+    opentelemetry, markdown-it-py -> markdown_it, backports-*)."""
+    n = _norm(name)
+    if n in declared or ('py' + n) in declared or ('python_' + n) in declared:
+        return True
+    prefix = n + '_'
+    return any(d.startswith(prefix) for d in declared)
+
+
+def _file_base(file_dir, outer_base, cache):
+    """Nearest declaring ancestor of file_dir, never above outer_base — so a nested
+    sub-project (examples/tutorial with its own pyproject) resolves against ITSELF."""
+    chain = []
+    cur = file_dir
+    found = outer_base
+    while True:
+        if cur in cache:
+            found = cache[cur]
+            break
+        chain.append(cur)
+        if cur == outer_base or len(chain) > 24:
+            break
+        if any(os.path.exists(os.path.join(cur, m)) for m in _DECL_MARKERS if m != '.git'):
+            found = cur
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    for d in chain:
+        cache[d] = found
+    return found
+
+
 def find_phantoms(root, deps):
-    # src/ layout and pytest-style tests/ helpers are standard, local-by-convention paths.
-    search = [root, os.path.join(root, 'src'), os.path.join(root, 'tests'), deps]
-    declared = declared_deps(root)
-    # the root's basename is treated as local (`from app.x import ...` inside app/): we hunt
+    root = os.path.abspath(root)
+    outer_base = _declaration_base(root)
+    base_cache, decl_cache, search_cache = {}, {}, {}
+
+    def base_info(base):
+        if base not in decl_cache:
+            decl_cache[base] = declared_deps(base)
+            # src/ layout and pytest-style tests/ helpers are standard, local-by-convention paths.
+            search_cache[base] = [base, os.path.join(base, 'src'), os.path.join(base, 'tests')]
+        return decl_cache[base], search_cache[base]
+
+    outer_declared, outer_search = base_info(outer_base)
+    # the scanned root itself always anchors resolution (a fixture/subdir scanned directly
+    # may sit below its declaration base — its own local modules must still resolve)
+    root_search = [root, os.path.join(root, 'src'), os.path.join(root, 'tests')]
+    # the base's basename is treated as local (`from app.x import ...` inside app/): we hunt
     # INVENTED sibling modules (models/db/state/...), not package-layout issues.
-    skip = _PREINSTALLED | {os.path.basename(root.rstrip('/'))}
+    skip = _PREINSTALLED | _PLATFORM_RUNTIME | {os.path.basename(root.rstrip('/')), os.path.basename(outer_base)}
     out = []
     for name, files in sorted(imported_names(root).items()):
-        if name in skip or resolvable(name, search):
-            continue
-        if _norm(name) in declared:
-            continue
-        if name in _ALIASES and _norm(_ALIASES[name]) in declared:
+        if name in skip:
             continue
         for rel in sorted(set(files)):
+            file_dir = os.path.dirname(os.path.join(root, rel))
+            base = _file_base(file_dir, outer_base, base_cache)
+            declared, search = base_info(base)
+            # file_dir itself: Python puts the running script's own directory on sys.path,
+            # and test fixtures/example apps rely on exactly that
+            if resolvable(name, [file_dir] + root_search + search + outer_search + [deps]):
+                continue
+            if _declared_matches(name, declared | outer_declared):
+                continue
+            alias = _ALIASES.get(name)
+            if alias:
+                dists = alias if isinstance(alias, tuple) else (alias,)
+                if any(_norm(d) in (declared | outer_declared) for d in dists):
+                    continue
+            if name == os.path.basename(base):
+                continue
             out.append((rel, name))
     return out
 

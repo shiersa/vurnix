@@ -20,6 +20,7 @@ Usage::
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,7 +32,7 @@ _TIMEOUT = 240
 
 
 def _collect(root):
-    py, js, go, java = [], [], [], []
+    py, js, ts, go, java = [], [], [], [], []
     for dp, dn, fn in os.walk(root):
         dn[:] = [d for d in dn if d not in _SKIP_DIRS and not d.startswith('.')]
         for f in fn:
@@ -40,11 +41,24 @@ def _collect(root):
                 py.append(p)
             elif f.endswith(('.js', '.mjs', '.cjs')):
                 js.append(p)
+            elif f.endswith(('.ts', '.tsx')) and not f.endswith(('.d.ts', '-d.ts')):
+                # .d.ts / *-d.ts are ambient type declarations and tsd-style type tests —
+                # no runtime code, not "unchecked source"
+                ts.append(p)
             elif f.endswith('.go'):
                 go.append(p)
             elif f.endswith('.java'):
                 java.append(p)
-    return sorted(py), sorted(js), sorted(go), sorted(java)
+    return sorted(py), sorted(js), sorted(ts), sorted(go), sorted(java)
+
+
+def _javac_works():
+    """which() alone lies on macOS: /usr/bin/javac exists as a stub that errors with
+    'Unable to locate a Java Runtime' when no JDK is installed. Probe it for real."""
+    if shutil.which('javac') is None:
+        return False
+    rc, _ = _run(['javac', '-version'])
+    return rc == 0
 
 
 def _run(cmd, cwd=None):
@@ -60,7 +74,7 @@ def check(root):
     """-> (report_lines, failure_count, skip_count). A SKIP is never counted as OK — the
     skip_count lets callers turn "checks that did not run" into an UNPROVEN verdict."""
     root = os.path.abspath(root)
-    py, js, go, java = _collect(root)
+    py, js, ts, go, java = _collect(root)
     lines = []
     failures = 0
     skips = 0
@@ -87,7 +101,10 @@ def check(root):
             bad = []
             for f in js:
                 rc, out = _run(['node', '--check', f])
-                if rc != 0:
+                if rc == 124:
+                    lines.append("compile js: SKIP (%s timed out — NOT checked)" % os.path.relpath(f, root))
+                    skips += 1
+                elif rc != 0:
                     bad.append("  js FAIL %s: %s" % (os.path.relpath(f, root), out.splitlines()[-1] if out else "rc=%d" % rc))
             if bad:
                 lines.append("compile js: FAIL (%d of %d file(s))" % (len(bad), len(js)))
@@ -95,6 +112,38 @@ def check(root):
                 failures += len(bad)
             else:
                 lines.append("compile js: OK (%d file(s))" % len(js))
+
+    if ts:
+        # TypeScript honestly needs the PROJECT'S compiler+config: per-file tsc without the
+        # project's types would fail on every import (environment, not code).
+        tsconfig = os.path.isfile(os.path.join(root, 'tsconfig.json'))
+        if shutil.which('tsc') is None:
+            lines.append("compile ts: SKIP (tsc/TypeScript compiler not found — %d file(s) NOT checked)" % len(ts))
+            skips += 1
+        elif not tsconfig:
+            lines.append("compile ts: SKIP (no tsconfig.json — no project context for tsc; %d file(s) NOT checked)" % len(ts))
+            skips += 1
+        else:
+            rc, out = _run(['tsc', '--noEmit', '-p', root], cwd=root)
+            if rc == 124:
+                lines.append("compile ts: SKIP (tsc timed out after %ds — %d file(s) NOT checked)" % (_TIMEOUT, len(ts)))
+                skips += 1
+            elif rc != 0:
+                errs = [ln for ln in out.splitlines() if re.search(r'error TS\d+', ln)]
+                # TS2307/TS2688/TS7016: cannot find module / type declarations — the
+                # dependencies aren't installed here; that's the environment, not the code
+                env_only = errs and all(re.search(r'error TS(2307|2688|7016)\b', ln) for ln in errs)
+                if env_only:
+                    lines.append("compile ts: SKIP (tsc only reports unresolvable modules — "
+                                 "dependencies not installed here; %d file(s) NOT checked)" % len(ts))
+                    skips += 1
+                else:
+                    lines.append("compile ts: FAIL (tsc --noEmit)")
+                    for ln in (errs or out.splitlines())[:20]:
+                        lines.append("  ts %s" % ln)
+                    failures += 1
+            else:
+                lines.append("compile ts: OK (tsc, %d file(s))" % len(ts))
 
     if go:
         if shutil.which('go') is None:
@@ -105,7 +154,12 @@ def check(root):
             skips += 1
         else:
             rc, out = _run(['go', 'vet', './...'], cwd=root)
-            if rc != 0:
+            if rc == 124:
+                # a vet run that never finished (usually fetching modules) proved nothing —
+                # that is UNPROVEN, not a code failure
+                lines.append("compile go: SKIP (go vet timed out after %ds — %d file(s) NOT checked)" % (_TIMEOUT, len(go)))
+                skips += 1
+            elif rc != 0:
                 lines.append("compile go: FAIL")
                 for ln in out.splitlines()[:20]:
                     lines.append("  go %s" % ln)
@@ -117,17 +171,35 @@ def check(root):
         pom = os.path.isfile(os.path.join(root, 'pom.xml'))
         if pom and shutil.which('mvn'):
             rc, out = _run(['mvn', '-q', '-DskipTests', 'compile'], cwd=root)
-            if rc != 0:
+            if rc == 124:
+                lines.append("compile java: SKIP (mvn timed out after %ds — %d file(s) NOT checked)" % (_TIMEOUT, len(java)))
+                skips += 1
+            elif rc != 0:
                 lines.append("compile java: FAIL (mvn compile)")
                 for ln in out.splitlines()[:20]:
                     lines.append("  java %s" % ln)
                 failures += 1
             else:
                 lines.append("compile java: OK (mvn, %d file(s))" % len(java))
-        elif shutil.which('javac'):
+        elif pom:
+            # a Maven project without mvn: raw javac has no classpath, so every dependency
+            # import "fails" — that verdict would be about the environment, not the code
+            lines.append("compile java: SKIP (pom.xml present but no mvn — javac without a "
+                         "classpath proves nothing; %d file(s) NOT checked)" % len(java))
+            skips += 1
+        elif os.path.isfile(os.path.join(root, 'build.gradle')) or \
+                os.path.isfile(os.path.join(root, 'build.gradle.kts')):
+            # same reasoning for Gradle projects: compiling outside the build tool proves nothing
+            lines.append("compile java: SKIP (gradle project — compiling outside Gradle "
+                         "proves nothing; %d file(s) NOT checked)" % len(java))
+            skips += 1
+        elif _javac_works():
             with tempfile.TemporaryDirectory() as tmp:
                 rc, out = _run(['javac', '-d', tmp] + java)
-            if rc != 0:
+            if rc == 124:
+                lines.append("compile java: SKIP (javac timed out after %ds — %d file(s) NOT checked)" % (_TIMEOUT, len(java)))
+                skips += 1
+            elif rc != 0:
                 lines.append("compile java: FAIL (javac)")
                 for ln in out.splitlines()[:20]:
                     lines.append("  java %s" % ln)
@@ -135,7 +207,7 @@ def check(root):
             else:
                 lines.append("compile java: OK (javac, %d file(s))" % len(java))
         else:
-            lines.append("compile java: SKIP (no mvn/javac toolchain — %d file(s) NOT checked)" % len(java))
+            lines.append("compile java: SKIP (no working mvn/javac toolchain — %d file(s) NOT checked)" % len(java))
             skips += 1
 
     if not lines:
