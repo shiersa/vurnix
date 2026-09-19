@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vurnix — the honest gate for AI-written code</title>
-<meta name="description" content="Vurnix is a set of deterministic, zero-dependency checkers that catch the shortcuts AI coding agents take to make tests pass: deleted asserts, skipped tests, invented imports. No model in the loop. BLOCK or PASS, never 'mostly green'.">
+<meta name="description" content="Vurnix is a set of deterministic, zero-dependency checkers that catch the shortcuts AI coding agents take to make tests pass: deleted asserts, skipped tests, invented imports. Three-state verdicts by exit code — PASS, BLOCK, UNPROVEN — validated on 22 real repos.">
 <meta property="og:title" content="Vurnix — the honest gate for AI-written code">
-<meta property="og:description" content="The deterministic gate that makes 'make the tests pass' cheats impossible to hide. A check that cannot run is not a check that passed.">
+<meta property="og:description" content="The deterministic gate that makes 'make the tests pass' cheats impossible to hide. PASS / BLOCK / UNPROVEN by exit code: a check that cannot run is not a check that passed.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://vurnix.dev/">
 <meta name="theme-color" content="#0a0b0c">
@@ -153,6 +153,16 @@
   .manifesto q b{font-style:normal;font-weight:400;color:var(--phosphor)}
   .manifesto .exp{margin-top:20px;color:var(--ink-dim);max-width:60ch;font-size:14px}
   .manifesto .exp b{color:var(--ink);font-weight:600}
+  .verdicts{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:28px}
+  @media(max-width:640px){.verdicts{grid-template-columns:1fr}}
+  .verdict{background:var(--panel);padding:18px 18px 16px}
+  .verdict .vh{display:flex;align-items:baseline;gap:10px;margin-bottom:7px}
+  .verdict .vh b{font-size:15px;letter-spacing:.14em}
+  .verdict .vh .ex{margin-left:auto;font-size:11px;color:var(--ink-faint);letter-spacing:.08em}
+  .verdict.v-pass .vh b{color:var(--pass)}
+  .verdict.v-block .vh b{color:var(--block)}
+  .verdict.v-un .vh b{color:var(--skip)}
+  .verdict p{font-size:12.5px;color:var(--ink-dim);line-height:1.6}
 
   /* ---------- section frame ---------- */
   section.blk{padding:76px 0}
@@ -213,6 +223,18 @@
   .measured{margin-top:22px;font-size:13px;color:var(--ink-faint);display:flex;align-items:center;gap:10px}
   .measured::before{content:"";width:18px;height:1px;background:var(--ink-faint)}
 
+  /* ---------- field ledger ---------- */
+  .ledger{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+  .chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font-size:12.5px;color:var(--ink-dim)}
+  .chip i{width:7px;height:7px;border-radius:50%;flex:none}
+  .chip.c-pass i{background:var(--pass)}
+  .chip.c-block i{background:var(--block)}
+  .chip.c-un i{background:var(--skip)}
+  .chip b{color:var(--ink);font-weight:600}
+  .ledger-note{margin-top:20px;font-size:13.5px;color:var(--ink-dim);max-width:72ch;line-height:1.66}
+  .ledger-note b{color:var(--ink);font-weight:600}
+  .ledger-note .g{color:var(--pass)}.ledger-note .r{color:var(--block)}.ledger-note .a{color:var(--skip)}
+
   /* ---------- closing / teaser ---------- */
   .close .wrap{max-width:900px}
   .teaser{
@@ -249,9 +271,9 @@
   <div class="wrap">
     <a class="brand" href="/" aria-label="Vurnix home"><span class="dot"></span><b>vurnix</b><span>/ honest gate</span></a>
     <div class="legend" aria-hidden="true">
-      <span class="lg pass"><i></i>pass</span>
-      <span class="lg skip"><i></i>skip</span>
-      <span class="lg block"><i></i>block</span>
+      <span class="lg pass"><i></i>pass 0</span>
+      <span class="lg block"><i></i>block 1</span>
+      <span class="lg skip"><i></i>unproven 3</span>
     </div>
     <nav class="navlinks">
       <a href="https://github.com/shiersa/vurnix">GitHub</a>
@@ -264,14 +286,14 @@
 <section class="hero">
   <div class="wrap">
     <div class="rv">
-      <div class="kicker">deterministic · zero-dependency · any agent</div>
+      <div class="kicker">deterministic · zero-dependency · three-state verdicts</div>
       <h1>The honest gate for<br><span class="em">AI-written code.</span></h1>
       <p class="lede">AI coding agents don't just write bugs. Told to <strong>&ldquo;make the tests pass&rdquo;</strong>, they delete the failing assert, skip the test, or import a module that doesn't exist. The suite goes green; the code is still broken. Vurnix is the deterministic gate that makes those shortcuts impossible to hide.</p>
       <div class="cmd">
         <span class="txt"><span class="p">$</span> <span id="install">pip install vurnix</span></span>
         <button id="copy" type="button" aria-label="Copy install command">copy</button>
       </div>
-      <p class="sub-cmd">then <code>vurnix gate ./myproject</code> — compile + phantom-import + honest test count, one verdict.</p>
+      <p class="sub-cmd">then <code>vurnix gate ./myproject</code> — compile + phantom-import + honest test count, one verdict: <code>0</code> PASS · <code>1</code> BLOCK · <code>3</code> UNPROVEN.</p>
     </div>
 
     <div class="rv" style="transition-delay:.12s">
@@ -295,7 +317,12 @@
     <div class="mark">the one rule</div>
     <div>
       <q>A check that cannot run<br>is not a check that <b>passed.</b></q>
-      <p class="exp">No model in the loop. No heuristics you have to trust — every check is <b>plain code you can read, with a hard exit code.</b> Missing a toolchain is a labelled <b>SKIP</b>, never a silent OK. Any failing check is a <b>BLOCK</b> and a non-zero exit. There is no &ldquo;mostly green&rdquo;.</p>
+      <p class="exp">No model in the loop. No heuristics you have to trust — every check is <b>plain code you can read, with a hard exit code.</b> Verdicts are three-state and fail-dominant. There is no &ldquo;mostly green&rdquo;, and there is no silent OK: <b>a suite that measures nothing exits 3, not 0.</b></p>
+      <div class="verdicts" role="list">
+        <div class="verdict v-pass" role="listitem"><div class="vh"><b>PASS</b><span class="ex">exit 0</span></div><p>Everything measured, everything green. The only verdict that lets a round count as done.</p></div>
+        <div class="verdict v-block" role="listitem"><div class="vh"><b>BLOCK</b><span class="ex">exit 1</span></div><p>A check failed — named, with a file and a reason. Fail-dominant: it beats UNPROVEN.</p></div>
+        <div class="verdict v-un" role="listitem"><div class="vh"><b>UNPROVEN</b><span class="ex">exit 3</span></div><p>Nothing (or not everything) was actually measured: missing toolchain, zero non-trivial tests, a red baseline. Not a failure — but never a pass.</p></div>
+      </div>
     </div>
   </div>
 </div>
@@ -357,8 +384,8 @@
           </tr>
           <tr>
             <td class="cmd-cell"><span class="c">vurnix coverage</span></td>
-            <td class="catch"><b>padded</b> test counts — only distinct, non-trivial tests count; <code>assert True</code> and copy-paste duplicates don't</td>
-            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">go</span><span class="lang">java</span></div></td>
+            <td class="catch"><b>padded</b> test counts — only distinct, non-trivial tests count; <code>assert True</code>, <code>assertTrue(True)</code> and copy-paste duplicates don't. Counts pytest, Django <code>tests.py</code>, unittest, mocha, jest, TS/vitest suites</td>
+            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">ts</span><span class="lang">go</span><span class="lang">java</span></div></td>
           </tr>
           <tr>
             <td class="cmd-cell"><span class="c">vurnix mutation</span></td>
@@ -367,17 +394,17 @@
           </tr>
           <tr>
             <td class="cmd-cell"><span class="c">vurnix phantom</span></td>
-            <td class="catch"><b>invented imports</b> — a module referenced in code that exists nowhere: not stdlib, not local, not vendored</td>
+            <td class="catch"><b>invented imports</b> — a module that exists nowhere: not stdlib, not local (incl. <code>src/</code> layouts), not vendored, and <b>not a declared dependency</b> (pyproject, poetry, PEP 735, requirements, setup, conda). Import guards respected</td>
             <td><div class="langs"><span class="lang">py</span></div></td>
           </tr>
           <tr>
             <td class="cmd-cell"><span class="c">vurnix compile</span></td>
-            <td class="catch">code that <b>doesn't even build</b>, per file, before anyone claims &ldquo;tests pass&rdquo;</td>
-            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">go</span><span class="lang">java</span></div></td>
+            <td class="catch">code that <b>doesn't even build</b> — and never fakes the answer: no tsc, a Gradle project, unfetched go modules all mean <b>UNPROVEN</b>, not a made-up FAIL</td>
+            <td><div class="langs"><span class="lang">py</span><span class="lang">js</span><span class="lang">ts</span><span class="lang">go</span><span class="lang">java</span></div></td>
           </tr>
           <tr class="gate">
             <td class="cmd-cell"><span class="c">vurnix gate</span></td>
-            <td class="catch"><b>composite</b> — compile + phantom + coverage floor, resolved to one honest verdict</td>
+            <td class="catch"><b>composite</b> — compile + phantom + coverage floor, resolved to one honest three-state verdict</td>
             <td><div class="langs"><span class="lang dash">all</span></div></td>
           </tr>
         </tbody>
@@ -426,7 +453,43 @@
         <div class="src">Valid syntax; flagged by <code>phantom</code> before it failed cryptically at install.</div>
       </div>
     </div>
-    <p class="measured rv">Deterministic orchestration is commoditised. An honest gate that never reports a green it can't defend has no counterpart — that's the whole point.</p>
+    <p class="measured rv">The industry is converging on machine-executable verification — recent research shows independent, frozen validators nearly double large-task completion. Vurnix is that idea shipped small: the most complete deterministic stack for the tests AI writes.</p>
+  </div>
+</section>
+
+<!-- FIELD VALIDATION -->
+<section class="blk" id="field">
+  <div class="wrap">
+    <div class="sec-head rv">
+      <span class="sec-num">04</span>
+      <h2>Validated on 22 real repos</h2>
+      <p>Two targeted rounds across four languages — libraries, applications, a monorepo, and an AI-pipeline-built app.</p>
+    </div>
+    <div class="ledger rv" aria-label="Gate verdicts across 22 real repositories">
+      <span class="chip c-pass"><i></i><b>attrs</b></span>
+      <span class="chip c-pass"><i></i><b>jinja</b></span>
+      <span class="chip c-pass"><i></i><b>urllib3</b></span>
+      <span class="chip c-pass"><i></i><b>express</b></span>
+      <span class="chip c-pass"><i></i><b>chi</b></span>
+      <span class="chip c-pass"><i></i><b>comp-radar-app</b>&nbsp;· AI-built</span>
+      <span class="chip c-un"><i></i>hono · no tsc here</span>
+      <span class="chip c-un"><i></i>axios · TS unchecked</span>
+      <span class="chip c-un"><i></i>commander · TS fixture</span>
+      <span class="chip c-un"><i></i>junit5 · Gradle policy</span>
+      <span class="chip c-un"><i></i>spring-petclinic · no JDK</span>
+      <span class="chip c-un"><i></i>gin · modules unfetched</span>
+      <span class="chip c-un"><i></i>django-realworld · ships zero tests</span>
+      <span class="chip c-block"><i></i>flask</span>
+      <span class="chip c-block"><i></i>click</span>
+      <span class="chip c-block"><i></i>pytest</span>
+      <span class="chip c-block"><i></i>rich</span>
+      <span class="chip c-block"><i></i>tinydb</span>
+      <span class="chip c-block"><i></i>httpx</span>
+      <span class="chip c-block"><i></i>geopandas</span>
+      <span class="chip c-block"><i></i>opentelemetry-py</span>
+      <span class="chip c-block"><i></i>fastapi-template</span>
+    </div>
+    <p class="ledger-note rv"><b>Zero phantom false positives on every shipped-code tree.</b> <span class="g">6 PASS</span> outright — including the app our own AI pipeline built. <span class="a">7 UNPROVEN</span>, each stating its reason in the output — including one famous example app that genuinely ships zero tests; the gate said so, and <code>find</code> agrees. <span class="r">9 BLOCKs</span> containing only true statements: dependencies used everywhere but declared nowhere, doc snippets importing made-up packages, fixtures wired up by runtime <code>sys.path</code> tricks a deterministic scanner can't bless — and doesn't pretend to.</p>
   </div>
 </section>
 
@@ -435,7 +498,7 @@
   <div class="wrap">
     <div class="teaser rv">
       <h2>The trust primitives, in the open.</h2>
-      <p>These checkers are extracted from the gate of a local-first autonomous coding pipeline we run against small local models — an environment where every failure mode of agentic coding shows up early and often. <b>The orchestration pipeline itself isn't in the box.</b> These are its trust primitives: zero runtime dependencies, usable with any agent, harness, or CI.</p>
+      <p>These checkers are extracted from the gate of a local-first autonomous coding pipeline we run against small local models — an environment where every failure mode of agentic coding shows up early and often. <b>The orchestration pipeline itself isn't in the box.</b> These are its trust primitives: zero runtime dependencies, usable with any agent, harness, or CI. Using <b>Spec Kit</b>? The gate is in the official community catalog — <code>specify extension add vurnix</code> hooks it after every implementation phase.</p>
       <div class="cta">
         <a class="btn primary" href="https://pypi.org/project/vurnix/">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg>
@@ -456,6 +519,7 @@
     <div class="r">
       <a href="https://github.com/shiersa/vurnix">GitHub</a><span class="sep">·</span>
       <a href="https://pypi.org/project/vurnix/">PyPI</a><span class="sep">·</span>
+      <a href="https://github.com/shiersa/vurnix-spec-kit">Spec Kit ext</a><span class="sep">·</span>
       <a href="https://github.com/shiersa/vurnix#readme">Docs</a>
     </div>
   </div>
